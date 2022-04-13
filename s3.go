@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -37,6 +36,7 @@ var (
 	ErrCantUseRenameWithStubObject   = errors.New("can't use rename with stub object")
 	ErrRenamingNonExistentDirectory  = errors.New("can't rename non-existent directory")
 	ErrNotADirectory                 = errors.New("given path is not a directory")
+	ErrDirectoryNotExists            = errors.New("directory not exists")
 )
 
 // S3 implements FileSystem. The implementation is not concurrent-safe
@@ -521,22 +521,29 @@ func (s *S3) Stat(name string) (FileInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		return S3FileInfo{
-			oi: minio.ObjectInfo{ // hand-crafted object
-				Key:          name,
-				LastModified: objectInfo.LastModified, // may be zero struct
-				Size:         0,
-			},
-			s3: s,
-		}, nil
+		// objectInfo.LastModified may be zero struct
+		return NewS3FileInfoStub(s, name, objectInfo.LastModified), nil
 	}
 	// if !s.nameIsADirectory(name) || !s.emulateEmptyDirs
+
+	if s.nameIsADirectoryPath(name) {
+		c, err := s.Count(name, true, nil)
+		if err != nil {
+			return nil, err
+		}
+		if c > 0 { // directory virtually exists
+			// modTime is not available when empty dirs are not emulated
+			return NewS3FileInfoStub(s, name, time.Time{}), nil
+		}
+		return nil, ErrDirectoryNotExists
+	}
+	// if (!s.nameIsADirectory(name) || !s.emulateEmptyDirs) && !s.nameIsADirectoryPath(name)
 
 	objectInfo, err := s.minioClient.StatObject(s.ctx, s.bucketName, name, minio.StatObjectOptions{})
 	if err != nil {
 		return nil, err
 	}
-	return S3FileInfo{oi: objectInfo, s3: s}, nil
+	return NewS3FileInfo(s, objectInfo), nil
 }
 
 // ReadDir simulates directory reading by the given name
@@ -567,7 +574,7 @@ func (s *S3) ReadDir(name string) (FilesInfo, error) {
 		if !strings.HasPrefix(objectInfo.Key, "/") { // add leading '/'
 			objectInfo.Key = "/" + objectInfo.Key
 		}
-		fi = append(fi, S3FileInfo{oi: objectInfo, s3: s})
+		fi = append(fi, NewS3FileInfo(s, objectInfo))
 	}
 
 	if !s.listDirectoryEntries {
@@ -597,15 +604,7 @@ func (s *S3) ReadDir(name string) (FilesInfo, error) {
 	}
 
 	for dirName := range dirMap { // adding directory entries to the list
-		s3fi := S3FileInfo{
-			oi: minio.ObjectInfo{ // hand-crafted object
-				Key:          dirName,
-				LastModified: time.Time{},
-				Size:         0,
-			},
-			s3: s,
-		}
-
+		s3fi := NewS3FileInfoStub(s, dirName, time.Time{})
 		if s.emulateEmptyDirs { // may request stat
 			o, err := s.Stat(s.nameToStub(dirName))
 			if err != nil {
@@ -636,8 +635,6 @@ func (s *S3) walkDir(name string, d DirEntry, walkDirFunc WalkDirFunc) error {
 		}
 	}
 
-	fmt.Println(">>>>>>", fsi)
-
 	for _, fi := range fsi {
 		if s.nameIsADirectoryStub(fi.Name()) {
 			continue
@@ -658,10 +655,9 @@ func (s *S3) WalkDir(name string, walkDirFunc WalkDirFunc) error {
 	name = s.normalizeName(name)
 	fi, err := s.Stat(name)
 	if err != nil {
-		err = walkDirFunc(name, nil, err)
-	} else { // err == nil
-		err = s.walkDir(name, S3DirEntry{oi: fi.(S3FileInfo).oi, fi: fi, s3: fi.Sys().(*S3)}, walkDirFunc)
+		return err
 	}
+	err = s.walkDir(name, S3DirEntry{oi: fi.(S3FileInfo).oi, fi: fi, s3: fi.Sys().(*S3)}, walkDirFunc)
 	if err == ErrSkipDir {
 		return nil
 	}

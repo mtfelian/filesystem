@@ -672,9 +672,9 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					Expect(names).To(BeEmpty())
 				})
 
-				XIt("checks for large amount of objects", func() {
+				It("checks for large amount of objects", func() {
 					const (
-						amount   = 3000
+						amount   = 1500
 						largeDir = "/manyfiles/"
 					)
 					nameFunc := func(i int) string { return fmt.Sprintf("%sitem %d", largeDir, i) }
@@ -777,23 +777,23 @@ var _ = Describe("S3 FileSystem implementation", func() {
 
 			It("checks for not-existing directory", func() {
 				var entriesWalked []walkDirEntry
-				Expect(s3fs.WalkDir("/4/5/6/7/", func(name string, de filesystem.DirEntry, e error) error {
+				Expect(s3fs.IsNotExist(s3fs.WalkDir("/4/5/6/7/", func(name string, de filesystem.DirEntry, e error) error {
 					if de != nil {
 						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
 					}
 					return nil
-				})).To(Succeed())
+				}))).To(BeTrue())
 				Expect(entriesWalked).To(BeEmpty())
 			})
 
 			It("checks for not-existing object", func() {
 				var entriesWalked []walkDirEntry
-				Expect(s3fs.WalkDir("/4/5/6/7", func(name string, de filesystem.DirEntry, e error) error {
+				Expect(s3fs.IsNotExist(s3fs.WalkDir("/4/5/6/7", func(name string, de filesystem.DirEntry, e error) error {
 					if de != nil {
 						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
 					}
 					return nil
-				})).To(Succeed())
+				}))).To(BeTrue())
 				Expect(entriesWalked).To(BeEmpty())
 			})
 		})
@@ -1048,6 +1048,15 @@ var _ = Describe("S3 FileSystem implementation", func() {
 		})
 
 		Describe("Stat", func() {
+			It("checks for existing directory", func() {
+				fi, err := s3fs.Stat(dir2)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(fi.ModTime()).To(BeZero(), "not defined if empty directories are not emulated")
+				Expect(fi.IsDir()).To(BeTrue())
+				Expect(fi.Name()).To(Equal(dir2))
+				Expect(fi.Size()).To(BeZero())
+			})
+
 			It("checks for not existing directory", func() {
 				_, err := s3fs.Stat("/4/5/6/7/")
 				Expect(err).To(HaveOccurred())
@@ -1118,7 +1127,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			})
 		})
 
-		FDescribe("WalkDir", func() {
+		Describe("WalkDir", func() {
 			It("checks for root directory", func() {
 				var entriesWalked []walkDirEntry
 				Expect(s3fs.WalkDir("/", func(name string, de filesystem.DirEntry, e error) error {
@@ -1138,7 +1147,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				}))
 			})
 
-			FIt("checks for non-root directory", func() {
+			It("checks for non-root directory", func() {
 				var entriesWalked []walkDirEntry
 				Expect(s3fs.WalkDir(dir2, func(name string, de filesystem.DirEntry, e error) error {
 					if de != nil {
@@ -1153,19 +1162,6 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				}))
 			})
 
-			It("checks for an object (not a directory)", func() {
-				var entriesWalked []walkDirEntry
-				Expect(s3fs.WalkDir(key2, func(name string, de filesystem.DirEntry, e error) error {
-					if de != nil {
-						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
-					}
-					return nil
-				})).To(Succeed())
-				Expect(entriesWalked).To(ConsistOf([]walkDirEntry{
-					{name: "/a/b/c_d/2.txt", isDir: false},
-				}))
-			})
-
 			It("checks for not-existing directory", func() {
 				var entriesWalked []walkDirEntry
 				Expect(s3fs.WalkDir("/4/5/6/7/", func(name string, de filesystem.DirEntry, e error) error {
@@ -1173,18 +1169,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
 					}
 					return nil
-				})).To(Succeed())
-				Expect(entriesWalked).To(BeEmpty())
-			})
-
-			It("checks for not-existing object", func() {
-				var entriesWalked []walkDirEntry
-				Expect(s3fs.WalkDir("/4/5/6/7", func(name string, de filesystem.DirEntry, e error) error {
-					if de != nil {
-						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
-					}
-					return nil
-				})).To(Succeed())
+				})).To(Equal(filesystem.ErrDirectoryNotExists))
 				Expect(entriesWalked).To(BeEmpty())
 			})
 		})

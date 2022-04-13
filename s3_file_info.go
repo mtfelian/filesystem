@@ -14,6 +14,14 @@ type S3FileInfo struct {
 	s3 *S3
 }
 
+// NewS3FileInfoStub returns new stub S3FileInfo object
+func NewS3FileInfoStub(s3 *S3, key string, modTime time.Time) S3FileInfo {
+	return S3FileInfo{oi: minio.ObjectInfo{Key: key, LastModified: modTime, Size: 0}, s3: s3}
+}
+
+// NewS3FileInfo returns new S3FileInfo object
+func NewS3FileInfo(s3 *S3, oi minio.ObjectInfo) S3FileInfo { return S3FileInfo{oi: oi, s3: s3} }
+
 // Name makes S3FileInfo to implement FileInfo. Returns key of S3 object
 func (s S3FileInfo) Name() string { return s.oi.Key }
 
