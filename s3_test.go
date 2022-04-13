@@ -747,25 +747,6 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				}))
 			})
 
-			It("checks for root directory", func() {
-				var entriesWalked []walkDirEntry
-				Expect(s3fs.WalkDir("/", func(name string, de filesystem.DirEntry, e error) error {
-					if de != nil {
-						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
-					}
-					return nil
-				})).To(Succeed())
-				Expect(entriesWalked).To(ConsistOf([]walkDirEntry{
-					{name: "/", isDir: true},
-					{name: "/a/", isDir: true},
-					{name: "/a/3.txt", isDir: false},
-					{name: "/a/b/", isDir: true},
-					{name: "/a/b/c_d/", isDir: true},
-					{name: "/a/b/c_d/1.txt", isDir: false},
-					{name: "/a/b/c_d/2.txt", isDir: false},
-				}))
-			})
-
 			It("checks for non-root directory", func() {
 				var entriesWalked []walkDirEntry
 				Expect(s3fs.WalkDir(dir2, func(name string, de filesystem.DirEntry, e error) error {
@@ -1138,25 +1119,6 @@ var _ = Describe("S3 FileSystem implementation", func() {
 		})
 
 		FDescribe("WalkDir", func() {
-			It("checks for root directory", func() {
-				var entriesWalked []walkDirEntry
-				Expect(s3fs.WalkDir("/", func(name string, de filesystem.DirEntry, e error) error {
-					if de != nil {
-						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
-					}
-					return nil
-				})).To(Succeed())
-				Expect(entriesWalked).To(ConsistOf([]walkDirEntry{
-					{name: "/", isDir: true},
-					{name: "/a/", isDir: true},
-					{name: "/a/3.txt", isDir: false},
-					{name: "/a/b/", isDir: true},
-					{name: "/a/b/c_d/", isDir: true},
-					{name: "/a/b/c_d/1.txt", isDir: false},
-					{name: "/a/b/c_d/2.txt", isDir: false},
-				}))
-			})
-
 			It("checks for root directory", func() {
 				var entriesWalked []walkDirEntry
 				Expect(s3fs.WalkDir("/", func(name string, de filesystem.DirEntry, e error) error {
