@@ -42,7 +42,7 @@ type FileSystem interface {
 	WithContext(context.Context) FileSystem
 	Create(string) (File, error)
 	Open(string) (File, error)
-	OpenForAppend(string) (File, error)
+	OpenW(string) (File, error)
 	ReadFile(string) ([]byte, error)
 	WriteFile(string, []byte) error
 	Reader(string) (io.ReadCloser, error)

@@ -26,9 +26,9 @@ func (l *Local) Open(name string) (File, error) { return os.Open(name) }
 // Create file in the FileSystem
 func (l *Local) Create(name string) (File, error) { return os.Create(name) }
 
-// OpenForAppend opens file in the FileSystem for appending at it's end
-func (l *Local) OpenForAppend(name string) (File, error) {
-	return os.OpenFile(name, os.O_APPEND|os.O_WRONLY, 0666)
+// OpenW opens file in the FileSystem for writing
+func (l *Local) OpenW(name string) (File, error) {
+	return os.OpenFile(name, os.O_WRONLY, 0666)
 }
 
 // ReadFile by name

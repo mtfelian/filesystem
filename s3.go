@@ -206,11 +206,11 @@ func (s *S3) inTempDir(name string) string { return filepath.Join(s.openedFilesT
 const (
 	fileModeOpen = iota
 	fileModeCreate
-	fileModeAppend
+	fileModeWrite
 )
 
 func (s *S3) openFile(name string, fileMode int) (File, error) {
-	if fileMode > fileModeAppend || fileMode < fileModeOpen {
+	if fileMode > fileModeWrite || fileMode < fileModeOpen {
 		return nil, ErrUnknownFileMode
 	}
 	var err error
@@ -224,7 +224,7 @@ func (s *S3) openFile(name string, fileMode int) (File, error) {
 		return nil, err
 	}
 
-	if fileMode == fileModeOpen || fileMode == fileModeAppend {
+	if fileMode == fileModeOpen || fileMode == fileModeWrite {
 		object, err := s.minioClient.GetObject(s.ctx, s.bucketName, name, minio.GetObjectOptions{})
 		if err != nil {
 			return nil, err
@@ -249,8 +249,8 @@ func (s *S3) openFile(name string, fileMode int) (File, error) {
 		localFile, err = s.openedFilesLocalFS.Open(localFileName)
 	case fileModeCreate:
 		localFile, err = s.openedFilesLocalFS.Create(localFileName)
-	case fileModeAppend:
-		localFile, err = s.openedFilesLocalFS.OpenForAppend(localFileName)
+	case fileModeWrite:
+		localFile, err = s.openedFilesLocalFS.OpenW(localFileName)
 	}
 	s3OpenedFile := S3OpenedFilesListEntry{
 		Added: s.now(),
@@ -277,11 +277,11 @@ func (s *S3) Open(name string) (File, error) { return s.openFile(name, fileModeO
 // it should be properly closed by calling Close() on the caller's side.
 func (s *S3) Create(name string) (File, error) { return s.openFile(name, fileModeCreate) }
 
-// OpenForAppend opens file in the FileSystem for appending at it's end.
-// An object will be downloaded from S3 storage and opened as a local file for appending.
+// OpenW opens file in the FileSystem for writing.
+// An object will be downloaded from S3 storage and opened as a local file for writing.
 // To remove the actual local file and write out into S3 object
 // it should be properly closed by calling Close() on the caller's side.
-func (s *S3) OpenForAppend(name string) (File, error) { return s.openFile(name, fileModeAppend) }
+func (s *S3) OpenW(name string) (File, error) { return s.openFile(name, fileModeWrite) }
 
 // ReadFile by it's name from the client's bucket
 func (s *S3) ReadFile(name string) ([]byte, error) {

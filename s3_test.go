@@ -323,9 +323,9 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				})
 			})
 
-			Context("Opening file for appending", func() {
+			Context("Opening file for writing", func() {
 				JustBeforeEach(func() {
-					f, err = s3fs.OpenForAppend(key1)
+					f, err = s3fs.OpenW(key1)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(f).NotTo(BeNil())
 					closed = false
@@ -361,7 +361,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					Expect(err.Error()).To(ContainSubstring(fs.ErrClosed.Error()))
 				})
 
-				It("checks appending to opened file, then closing and reading from object", func() {
+				It("checks writing to opened file, then closing and reading from object", func() {
 					content := "123 456"
 					By("writing into file", func() {
 						n, err := f.Write([]byte(content))
@@ -373,7 +373,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 
 					b, err := s3fs.ReadFile(key1)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(b).To(BeEquivalentTo([]byte(content1 + content)))
+					Expect(b).To(BeEquivalentTo([]byte("123 456 1")), "should be partially overwritten")
 				})
 
 				It("checks that Stat.Size and SeekEnd returns same size", func() {
@@ -385,38 +385,6 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					n, err := f.Seek(0, io.SeekEnd)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(size).To(Equal(n))
-				})
-
-				It("checks that can't Read in the file opened for appending, and writing only appends", func() {
-					content := "123 456"
-					By("attempting to Seek", func() {
-						_, err := f.Seek(0, io.SeekStart)
-						Expect(err).NotTo(HaveOccurred())
-					})
-
-					By("attempting to write", func() {
-						n, err := f.Write([]byte(content))
-						Expect(err).NotTo(HaveOccurred())
-						Expect(n).To(Equal(len(content)))
-					})
-
-					By("attempting to Seek", func() {
-						_, err := f.Seek(0, io.SeekStart)
-						Expect(err).NotTo(HaveOccurred())
-					})
-
-					By("attempting to Read, should fail", func() {
-						b := bytes.NewBuffer([]byte{})
-						n, err := io.Copy(b, f)
-						Expect(err).To(HaveOccurred())
-						Expect(n).To(BeZero())
-					})
-					Expect(f.Close()).To(Succeed())
-					closed = true
-
-					b, err := s3fs.ReadFile(key1)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(b).To(BeEquivalentTo([]byte(content1+content)), "append only")
 				})
 			})
 		})
