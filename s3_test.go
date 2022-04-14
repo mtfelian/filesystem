@@ -151,8 +151,9 @@ var _ = Describe("S3 FileSystem implementation", func() {
 
 		Describe("Open, Close and opened files cleanup", func() {
 			var openedFilesList *filesystem.S3OpenedFilesList
+			var f filesystem.File
 			JustBeforeEach(func() {
-				f, err := s3fs.Open(key1)
+				f, err = s3fs.Open(key1)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(f).NotTo(BeNil())
 
@@ -202,6 +203,23 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				err := s3FileEntry.S3File.Close()
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring(fs.ErrClosed.Error()))
+			})
+
+			It("checks reading from opened file", func() {
+				defer func() { Expect(f.Close()).To(Succeed()) }()
+
+				size, err := f.Seek(0, io.SeekEnd)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(size).To(BeEquivalentTo(len(content1)))
+
+				_, err = f.Seek(0, io.SeekStart)
+				Expect(err).NotTo(HaveOccurred())
+
+				b := make([]byte, size)
+				l, err := f.Read(b)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(l).To(BeEquivalentTo(size))
+				Expect(b).To(BeEquivalentTo([]byte(content1)))
 			})
 		})
 

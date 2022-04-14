@@ -40,6 +40,7 @@ type WalkDirFunc func(string, DirEntry, error) error
 // FileSystem abstracts a file system
 type FileSystem interface {
 	WithContext(context.Context) FileSystem
+	Create(string) (File, error)
 	Open(string) (File, error)
 	ReadFile(string) ([]byte, error)
 	WriteFile(string, []byte) error

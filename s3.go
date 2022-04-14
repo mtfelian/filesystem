@@ -202,7 +202,8 @@ func (s *S3) openedFilesListCleaning() {
 
 func (s *S3) inTempDir(name string) string { return filepath.Join(s.openedFilesTempDir, TempDir, name) }
 
-// Open filename in the client's bucket. The returned object will be locally opened as a file.
+// Open file with given name in the client's bucket.
+// The returned object will be locally opened as a file for reading.
 // To remove the actual local file and write out into S3 object
 // it should be properly closed on the caller's side.
 func (s *S3) Open(name string) (File, error) {
@@ -245,6 +246,13 @@ func (s *S3) Open(name string) (File, error) {
 	}
 	s.openedFilesList.m[localFileName] = s3OpenedFile
 	return s3OpenedFile.S3File, err
+}
+
+// Create filename in the client's bucket. The returned object will be locally opened as a file.
+// To remove the actual local file and write out into S3 object
+// it should be properly closed on the caller's side.
+func (s *S3) Create(name string) (File, error) {
+	return nil, nil
 }
 
 // ReadFile by it's name from the client's bucket

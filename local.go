@@ -23,6 +23,9 @@ func (l *Local) WithContext(ctx context.Context) FileSystem { return l }
 // Open file in the FileSystem
 func (l *Local) Open(name string) (File, error) { return os.Open(name) }
 
+// Create file in the FileSystem
+func (l *Local) Create(name string) (File, error) { return os.Create(name) }
+
 // ReadFile by name
 func (l *Local) ReadFile(name string) ([]byte, error) { return os.ReadFile(name) }
 
@@ -88,9 +91,6 @@ func (l *Local) Rename(from, to string) error {
 
 // Stat returns a FileInfo describing the named file
 func (l *Local) Stat(name string) (FileInfo, error) { return os.Stat(name) }
-
-// Create file
-func (l *Local) Create(name string) (File, error) { return os.Create(name) }
 
 // ReadDir with the name given
 func (l *Local) ReadDir(name string) (FilesInfo, error) {
