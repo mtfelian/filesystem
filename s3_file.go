@@ -12,6 +12,7 @@ type S3OpenedFile struct {
 	underlying File   // underlying local file
 	localName  string // underlying local file path
 	objectName string // S3 object key
+	mode       int
 
 	changed bool
 }
@@ -73,11 +74,6 @@ func (of *S3OpenedFile) Write(p []byte) (n int, err error) {
 
 // Close makes S3OpenedFile to implement File. It closed the underlying File and removes it from local file system.
 func (of *S3OpenedFile) Close() error {
-	func() { // delete opened files list walkDirEntry
-		of.s3.OpenedFilesListLock()
-		defer of.s3.OpenedFilesListUnlock()
-		delete(of.s3.OpenedFilesList().m, of.localName)
-	}()
 	if err := of.underlying.Close(); err != nil { // close the underlying file
 		of.s3.logger.Errorf("failed to of.underlying.Close() on file %q: %v", of.localName, err)
 		return err
@@ -87,10 +83,20 @@ func (of *S3OpenedFile) Close() error {
 	if err != nil {
 		return err
 	}
+
 	if err := of.s3.WriteFile(of.objectName, b); err != nil { // write it into S3 storage
 		return err
 	}
 	of.changed = false
+
+	defer func() { // unlock and delete opened files list entry
+		of.s3.OpenedFilesListLock()
+		defer of.s3.OpenedFilesListUnlock()
+		if entry := of.s3.OpenedFilesList().m[of.localName]; entry != nil {
+			entry.Unlock()
+			delete(of.s3.OpenedFilesList().m, of.localName)
+		}
+	}()
 
 	exists, err := of.s3.openedFilesLocalFS.Exists(of.localName) // if local file still exists...
 	if err != nil {

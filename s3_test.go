@@ -382,6 +382,25 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					Expect(size).To(Equal(n))
 				})
 			})
+
+			//Context("concurrent opening file for reading and writing", func() {
+			//	JustBeforeEach(func() {
+			//		f, err = s3fs.Open(key1)
+			//		Expect(err).NotTo(HaveOccurred())
+			//		Expect(f).NotTo(BeNil())
+			//		closed = false
+			//
+			//		openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
+			//		Expect(openedFilesList).NotTo(BeNil())
+			//		Expect(openedFilesList.Map()).To(HaveLen(1))
+			//	})
+			//
+			//	It("checks concurrent Open with Open", func() {
+			//		fw, err := s3fs.Open(key1)
+			//		Expect(err).NotTo(HaveOccurred())
+			//		Expect(fw).NotTo(BeNil())
+			//	})
+			//})
 		})
 
 		Describe("Reader", func() {

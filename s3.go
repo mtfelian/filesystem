@@ -223,16 +223,24 @@ func (s *S3) openFile(name string, fileMode int) (File, error) {
 	}
 
 	localFileName := s.TempFileName(name)
+
+	var s3OpenedFile *S3OpenedFilesListEntry
+	func() { // checking lock on entry
+		s.openedFilesList.Lock()
+		defer s.openedFilesList.Unlock()
+		s3OpenedFile, _ = s.openedFilesList.m[localFileName]
+	}()
+
 	if err := s.openedFilesLocalFS.MakePathAll(filepath.Dir(localFileName)); err != nil {
 		return nil, err
 	}
 
-	if fileMode == fileModeOpen || fileMode == fileModeWrite {
+	if fileMode != fileModeCreate { // fileModeOpen or fileModeWrite, so we create local file from S3 object
 		object, err := s.minioClient.GetObject(s.ctx, s.bucketName, name, minio.GetObjectOptions{})
 		if err != nil {
 			return nil, err
 		}
-		localFile, err := s.openedFilesLocalFS.Create(localFileName) // creating file from object
+		localFile, err := s.openedFilesLocalFS.Create(localFileName)
 		if err != nil {
 			return nil, err
 		}
@@ -244,27 +252,36 @@ func (s *S3) openFile(name string, fileMode int) (File, error) {
 		}
 	}
 
-	s.OpenedFilesListLock()
-	defer s.OpenedFilesListUnlock()
-	var localFile File
+	if s3OpenedFile == nil {
+		s3OpenedFile = &S3OpenedFilesListEntry{
+			Added: s.now(),
+			S3File: &S3OpenedFile{
+				s3:         s,
+				underlying: nil, // to be written below
+				localName:  localFileName,
+				objectName: name,
+				mode:       fileMode,
+			},
+		}
+		s3OpenedFile.Lock()
+	}
+
 	switch fileMode {
 	case fileModeOpen:
-		localFile, err = s.openedFilesLocalFS.Open(localFileName)
+		s3OpenedFile.S3File.underlying, err = s.openedFilesLocalFS.Open(localFileName)
 	case fileModeCreate:
-		localFile, err = s.openedFilesLocalFS.Create(localFileName)
+		s3OpenedFile.S3File.underlying, err = s.openedFilesLocalFS.Create(localFileName)
 	case fileModeWrite:
-		localFile, err = s.openedFilesLocalFS.OpenW(localFileName)
+		s3OpenedFile.S3File.underlying, err = s.openedFilesLocalFS.OpenW(localFileName)
 	}
-	s3OpenedFile := &S3OpenedFilesListEntry{
-		Added: s.now(),
-		S3File: &S3OpenedFile{
-			s3:         s,
-			underlying: localFile,
-			localName:  localFileName,
-			objectName: name,
-		},
-	}
-	s.openedFilesList.m[localFileName] = s3OpenedFile
+
+	func() { // adding entry to the list
+		s.OpenedFilesListLock()
+		defer s.OpenedFilesListUnlock()
+
+		s.openedFilesList.m[localFileName] = s3OpenedFile
+	}()
+
 	return s3OpenedFile.S3File, err
 }
 
