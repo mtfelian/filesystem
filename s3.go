@@ -37,6 +37,7 @@ var (
 	ErrRenamingNonExistentDirectory  = errors.New("can't rename non-existent directory")
 	ErrNotADirectory                 = errors.New("given path is not a directory")
 	ErrDirectoryNotExists            = errors.New("directory not exists")
+	ErrUnknownFileMode               = errors.New("unknown file mode")
 )
 
 // S3 implements FileSystem. The implementation is not concurrent-safe
@@ -202,19 +203,20 @@ func (s *S3) openedFilesListCleaning() {
 
 func (s *S3) inTempDir(name string) string { return filepath.Join(s.openedFilesTempDir, TempDir, name) }
 
-// Open file with given name in the client's bucket.
-// The returned object will be locally opened as a file for reading.
-// To remove the actual local file and write out into S3 object
-// it should be properly closed on the caller's side.
-func (s *S3) Open(name string) (File, error) {
+const (
+	fileModeOpen = iota
+	fileModeCreate
+	fileModeAppend
+)
+
+func (s *S3) openFile(name string, fileMode int) (File, error) {
+	if fileMode > fileModeAppend || fileMode < fileModeOpen {
+		return nil, ErrUnknownFileMode
+	}
+	var err error
 	name = s.normalizeName(name)
 	if s.nameIsADirectory(name) {
 		return nil, ErrCantOpenS3Directory
-	}
-
-	object, err := s.minioClient.GetObject(s.ctx, s.bucketName, name, minio.GetObjectOptions{})
-	if err != nil {
-		return nil, err
 	}
 
 	localFileName := s.inTempDir(name)
@@ -222,20 +224,34 @@ func (s *S3) Open(name string) (File, error) {
 		return nil, err
 	}
 
-	localFile, err := s.openedFilesLocalFS.Create(localFileName) // creating file from object
-	if err != nil {
-		return nil, err
-	}
-	if _, err = io.Copy(localFile, object); err != nil {
-		return nil, err
-	}
-	if err := localFile.Close(); err != nil {
-		return nil, err
+	if fileMode == fileModeOpen || fileMode == fileModeAppend {
+		object, err := s.minioClient.GetObject(s.ctx, s.bucketName, name, minio.GetObjectOptions{})
+		if err != nil {
+			return nil, err
+		}
+		localFile, err := s.openedFilesLocalFS.Create(localFileName) // creating file from object
+		if err != nil {
+			return nil, err
+		}
+		if _, err = io.Copy(localFile, object); err != nil {
+			return nil, err
+		}
+		if err := localFile.Close(); err != nil {
+			return nil, err
+		}
 	}
 
 	s.OpenedFilesListLock()
 	defer s.OpenedFilesListUnlock()
-	localFile, err = s.openedFilesLocalFS.Open(localFileName) // reopen for reading only
+	var localFile File
+	switch fileMode {
+	case fileModeOpen:
+		localFile, err = s.openedFilesLocalFS.Open(localFileName)
+	case fileModeCreate:
+		localFile, err = s.openedFilesLocalFS.Create(localFileName)
+	case fileModeAppend:
+		localFile, err = s.openedFilesLocalFS.OpenForAppend(localFileName)
+	}
 	s3OpenedFile := S3OpenedFilesListEntry{
 		Added: s.now(),
 		S3File: &S3OpenedFile{
@@ -248,41 +264,24 @@ func (s *S3) Open(name string) (File, error) {
 	s.openedFilesList.m[localFileName] = s3OpenedFile
 	return s3OpenedFile.S3File, err
 }
+
+// Open file with given name in the client's bucket.
+// An object will be downloaded from S3 storage and opened as a local file for reading.
+// To remove the actual local file and write out into S3 object
+// it should be properly closed by calling Close() on the caller's side.
+func (s *S3) Open(name string) (File, error) { return s.openFile(name, fileModeOpen) }
 
 // Create file with given name in the client's bucket.
-// The returned object will be locally created as a file for reading, writing, truncating.
+// A file will be created locally for reading, writing, truncating.
 // To remove the actual local file and write out into S3 object
-// it should be properly closed on the caller's side.
-func (s *S3) Create(name string) (File, error) {
-	name = s.normalizeName(name)
-	if s.nameIsADirectory(name) {
-		return nil, ErrCantOpenS3Directory
-	}
+// it should be properly closed by calling Close() on the caller's side.
+func (s *S3) Create(name string) (File, error) { return s.openFile(name, fileModeCreate) }
 
-	localFileName := s.inTempDir(name)
-	if err := s.openedFilesLocalFS.MakePathAll(filepath.Dir(localFileName)); err != nil {
-		return nil, err
-	}
-
-	s.OpenedFilesListLock()
-	defer s.OpenedFilesListUnlock()
-	localFile, err := s.openedFilesLocalFS.Create(localFileName)
-	if err != nil {
-		return nil, err
-	}
-
-	s3OpenedFile := S3OpenedFilesListEntry{
-		Added: s.now(),
-		S3File: &S3OpenedFile{
-			s3:         s,
-			underlying: localFile,
-			localName:  localFileName,
-			objectName: name,
-		},
-	}
-	s.openedFilesList.m[localFileName] = s3OpenedFile
-	return s3OpenedFile.S3File, err
-}
+// OpenForAppend opens file in the FileSystem for appending at it's end.
+// An object will be downloaded from S3 storage and opened as a local file for appending.
+// To remove the actual local file and write out into S3 object
+// it should be properly closed by calling Close() on the caller's side.
+func (s *S3) OpenForAppend(name string) (File, error) { return s.openFile(name, fileModeAppend) }
 
 // ReadFile by it's name from the client's bucket
 func (s *S3) ReadFile(name string) ([]byte, error) {

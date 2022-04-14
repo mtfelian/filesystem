@@ -150,7 +150,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			}
 		})
 
-		Describe("Open, Create, Close and opened files cleanup", func() {
+		Describe("Opening files in various modes, closing and autoclosing", func() {
 			var (
 				openedFilesList *filesystem.S3OpenedFilesList
 				f               filesystem.File
@@ -320,6 +320,103 @@ var _ = Describe("S3 FileSystem implementation", func() {
 						Expect(err).NotTo(HaveOccurred())
 						Expect(b).To(BeEquivalentTo([]byte(content)))
 					})
+				})
+			})
+
+			Context("Opening file for appending", func() {
+				JustBeforeEach(func() {
+					f, err = s3fs.OpenForAppend(key1)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(f).NotTo(BeNil())
+					closed = false
+
+					openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
+					Expect(openedFilesList).NotTo(BeNil())
+					Expect(openedFilesList.Map()).To(HaveLen(1))
+				})
+
+				It("checks Close", func() {
+					s3FileEntry := lookUpForSingleEntry()
+					Expect(s3FileEntry.Added).To(BeTemporally("~", time.Now(), 2*time.Second))
+
+					name := s3FileEntry.S3File.Name()
+					Expect(name).To(Equal(inTempDir(key1)))
+					Expect(s3FileEntry.S3File.Close()).To(Succeed())
+					closed = true
+
+					By("checking that file was removed at Close call", func() {
+						Expect(isExists(name)).To(BeFalse())
+					})
+				})
+
+				It("checks autoclosing", func() {
+					s3FileEntry := lookUpForSingleEntry()
+					Eventually(func() bool {
+						return isExists(s3FileEntry.S3File.Name())
+					}, 3*ttl, ttl/2).Should(BeFalse()) // to give slightly more time to the cleaner goroutine
+					closed = true
+
+					err := s3FileEntry.S3File.Close()
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring(fs.ErrClosed.Error()))
+				})
+
+				It("checks appending to opened file, then closing and reading from object", func() {
+					content := "123 456"
+					By("writing into file", func() {
+						n, err := f.Write([]byte(content))
+						Expect(err).NotTo(HaveOccurred())
+						Expect(n).To(Equal(len(content)))
+					})
+					Expect(f.Close()).To(Succeed())
+					closed = true
+
+					b, err := s3fs.ReadFile(key1)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(b).To(BeEquivalentTo([]byte(content1 + content)))
+				})
+
+				It("checks that Stat.Size and SeekEnd returns same size", func() {
+					fi, err := lookUpForSingleEntry().S3File.Stat()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(fi).NotTo(BeNil())
+
+					size := fi.Size()
+					n, err := f.Seek(0, io.SeekEnd)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(size).To(Equal(n))
+				})
+
+				It("checks that can't Read in the file opened for appending, and writing only appends", func() {
+					content := "123 456"
+					By("attempting to Seek", func() {
+						_, err := f.Seek(0, io.SeekStart)
+						Expect(err).NotTo(HaveOccurred())
+					})
+
+					By("attempting to write", func() {
+						n, err := f.Write([]byte(content))
+						Expect(err).NotTo(HaveOccurred())
+						Expect(n).To(Equal(len(content)))
+					})
+
+					By("attempting to Seek", func() {
+						_, err := f.Seek(0, io.SeekStart)
+						Expect(err).NotTo(HaveOccurred())
+					})
+
+					By("attempting to Read, should fail", func() {
+						b := bytes.NewBuffer([]byte{})
+						n, err := io.Copy(b, f)
+						Expect(err).To(HaveOccurred())
+						Expect(n).To(BeZero())
+					})
+					Expect(f.Close()).To(Succeed())
+					closed = true
+
+					b, err := s3fs.ReadFile(key1)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(b).To(BeEquivalentTo([]byte(content1+content)), "append only")
 				})
 			})
 		})
