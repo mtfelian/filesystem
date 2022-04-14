@@ -201,7 +201,10 @@ func (s *S3) openedFilesListCleaning() {
 	}
 }
 
-func (s *S3) inTempDir(name string) string { return filepath.Join(s.openedFilesTempDir, TempDir, name) }
+// TempFileName converts file name to a temporary file name
+func (s *S3) TempFileName(name string) string {
+	return filepath.Join(s.openedFilesTempDir, TempDir, strings.ReplaceAll(name, "/", "__"))
+}
 
 const (
 	fileModeOpen = iota
@@ -219,7 +222,7 @@ func (s *S3) openFile(name string, fileMode int) (File, error) {
 		return nil, ErrCantOpenS3Directory
 	}
 
-	localFileName := s.inTempDir(name)
+	localFileName := s.TempFileName(name)
 	if err := s.openedFilesLocalFS.MakePathAll(filepath.Dir(localFileName)); err != nil {
 		return nil, err
 	}
@@ -252,7 +255,7 @@ func (s *S3) openFile(name string, fileMode int) (File, error) {
 	case fileModeWrite:
 		localFile, err = s.openedFilesLocalFS.OpenW(localFileName)
 	}
-	s3OpenedFile := S3OpenedFilesListEntry{
+	s3OpenedFile := &S3OpenedFilesListEntry{
 		Added: s.now(),
 		S3File: &S3OpenedFile{
 			s3:         s,

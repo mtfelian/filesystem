@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/fs"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -138,10 +137,6 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			Expect(exists).To(BeFalse())
 		})
 
-		inTempDir := func(s string) string {
-			return filepath.Join(filesystem.TempDir, strings.ReplaceAll(s, "/", string(filepath.Separator)))
-		}
-
 		It("checks ReadFile on existing objects", func() {
 			for key, content := range keyToContent {
 				actualContent, err := s3fs.ReadFile(key)
@@ -163,7 +158,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				}
 			})
 
-			lookUpForSingleEntry := func() filesystem.S3OpenedFilesListEntry {
+			lookUpForSingleEntry := func() *filesystem.S3OpenedFilesListEntry {
 				s3fs.(*filesystem.S3).OpenedFilesListLock()
 				defer s3fs.(*filesystem.S3).OpenedFilesListUnlock()
 				for key, value := range openedFilesList.Map() {
@@ -173,7 +168,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					return value
 				}
 				Fail("openedFilesList is empty")
-				return filesystem.S3OpenedFilesListEntry{}
+				return nil
 			}
 
 			isExists := func(name string) bool {
@@ -199,7 +194,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					Expect(s3FileEntry.Added).To(BeTemporally("~", time.Now(), 2*time.Second))
 
 					name := s3FileEntry.S3File.Name()
-					Expect(name).To(Equal(inTempDir(key1)))
+					Expect(name).To(Equal(s3fs.(*filesystem.S3).TempFileName(key1)))
 					Expect(s3FileEntry.S3File.Close()).To(Succeed())
 					closed = true
 
@@ -259,7 +254,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					Expect(s3FileEntry.Added).To(BeTemporally("~", time.Now(), 2*time.Second))
 
 					name := s3FileEntry.S3File.Name()
-					Expect(name).To(Equal(inTempDir(key1)))
+					Expect(name).To(Equal(s3fs.(*filesystem.S3).TempFileName(key1)))
 					Expect(s3FileEntry.S3File.Close()).To(Succeed())
 					closed = true
 
@@ -340,7 +335,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					Expect(s3FileEntry.Added).To(BeTemporally("~", time.Now(), 2*time.Second))
 
 					name := s3FileEntry.S3File.Name()
-					Expect(name).To(Equal(inTempDir(key1)))
+					Expect(name).To(Equal(s3fs.(*filesystem.S3).TempFileName(key1)))
 					Expect(s3FileEntry.S3File.Close()).To(Succeed())
 					closed = true
 
