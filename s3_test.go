@@ -150,16 +150,26 @@ var _ = Describe("S3 FileSystem implementation", func() {
 		})
 
 		Describe("Open, Close and opened files cleanup", func() {
-			var openedFilesList *filesystem.S3OpenedFilesList
-			var f filesystem.File
+			var (
+				openedFilesList *filesystem.S3OpenedFilesList
+				f               filesystem.File
+				closed          bool
+			)
 			JustBeforeEach(func() {
 				f, err = s3fs.Open(key1)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(f).NotTo(BeNil())
+				closed = false
 
 				openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
 				Expect(openedFilesList).NotTo(BeNil())
 				Expect(openedFilesList.Map()).To(HaveLen(1))
+			})
+
+			JustAfterEach(func() {
+				if !closed {
+					Expect(f.Close()).To(Succeed())
+				}
 			})
 
 			lookUpForSingleEntry := func() filesystem.S3OpenedFilesListEntry {
@@ -200,14 +210,13 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					return isExists(s3FileEntry.S3File.Name())
 				}, 3*ttl, ttl/2).Should(BeFalse()) // to give slightly more time to the cleaner goroutine
 
+				closed = true
 				err := s3FileEntry.S3File.Close()
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring(fs.ErrClosed.Error()))
 			})
 
 			It("checks reading from opened file", func() {
-				defer func() { Expect(f.Close()).To(Succeed()) }()
-
 				size, err := f.Seek(0, io.SeekEnd)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(size).To(BeEquivalentTo(len(content1)))
@@ -216,10 +225,16 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				b := make([]byte, size)
-				l, err := f.Read(b)
+				n, err := f.Read(b)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(l).To(BeEquivalentTo(size))
+				Expect(n).To(BeEquivalentTo(size))
 				Expect(b).To(BeEquivalentTo([]byte(content1)))
+			})
+
+			It("checks that can't write to opened file", func() {
+				n, err := f.Write([]byte("123"))
+				Expect(err).To(HaveOccurred())
+				Expect(n).To(BeZero())
 			})
 		})
 
