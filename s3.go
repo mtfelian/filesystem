@@ -221,7 +221,8 @@ func (s *S3) Open(name string) (File, error) {
 	if err := s.openedFilesLocalFS.MakePathAll(filepath.Dir(localFileName)); err != nil {
 		return nil, err
 	}
-	localFile, err := s.openedFilesLocalFS.Create(localFileName)
+
+	localFile, err := s.openedFilesLocalFS.Create(localFileName) // creating file from object
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +235,7 @@ func (s *S3) Open(name string) (File, error) {
 
 	s.OpenedFilesListLock()
 	defer s.OpenedFilesListUnlock()
-	localFile, err = s.openedFilesLocalFS.Open(localFileName)
+	localFile, err = s.openedFilesLocalFS.Open(localFileName) // reopen for reading only
 	s3OpenedFile := S3OpenedFilesListEntry{
 		Added: s.now(),
 		S3File: &S3OpenedFile{
@@ -248,11 +249,39 @@ func (s *S3) Open(name string) (File, error) {
 	return s3OpenedFile.S3File, err
 }
 
-// Create filename in the client's bucket. The returned object will be locally opened as a file.
+// Create file with given name in the client's bucket.
+// The returned object will be locally created as a file for reading, writing, truncating.
 // To remove the actual local file and write out into S3 object
 // it should be properly closed on the caller's side.
 func (s *S3) Create(name string) (File, error) {
-	return nil, nil
+	name = s.normalizeName(name)
+	if s.nameIsADirectory(name) {
+		return nil, ErrCantOpenS3Directory
+	}
+
+	localFileName := s.inTempDir(name)
+	if err := s.openedFilesLocalFS.MakePathAll(filepath.Dir(localFileName)); err != nil {
+		return nil, err
+	}
+
+	s.OpenedFilesListLock()
+	defer s.OpenedFilesListUnlock()
+	localFile, err := s.openedFilesLocalFS.Create(localFileName)
+	if err != nil {
+		return nil, err
+	}
+
+	s3OpenedFile := S3OpenedFilesListEntry{
+		Added: s.now(),
+		S3File: &S3OpenedFile{
+			s3:         s,
+			underlying: localFile,
+			localName:  localFileName,
+			objectName: name,
+		},
+	}
+	s.openedFilesList.m[localFileName] = s3OpenedFile
+	return s3OpenedFile.S3File, err
 }
 
 // ReadFile by it's name from the client's bucket

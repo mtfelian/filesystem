@@ -1,6 +1,7 @@
 package filesystem_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -149,22 +150,12 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			}
 		})
 
-		Describe("Open, Close and opened files cleanup", func() {
+		Describe("Open, Create, Close and opened files cleanup", func() {
 			var (
 				openedFilesList *filesystem.S3OpenedFilesList
 				f               filesystem.File
 				closed          bool
 			)
-			JustBeforeEach(func() {
-				f, err = s3fs.Open(key1)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(f).NotTo(BeNil())
-				closed = false
-
-				openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
-				Expect(openedFilesList).NotTo(BeNil())
-				Expect(openedFilesList.Map()).To(HaveLen(1))
-			})
 
 			JustAfterEach(func() {
 				if !closed {
@@ -191,50 +182,145 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				return exists
 			}
 
-			It("checks Close", func() {
-				s3FileEntry := lookUpForSingleEntry()
-				Expect(s3FileEntry.Added).To(BeTemporally("~", time.Now(), 2*time.Second))
+			Context("Opening file for reading", func() {
+				JustBeforeEach(func() {
+					f, err = s3fs.Open(key1)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(f).NotTo(BeNil())
+					closed = false
 
-				name := s3FileEntry.S3File.Name()
-				Expect(name).To(Equal(inTempDir(key1)))
-				Expect(s3FileEntry.S3File.Close()).To(Succeed())
+					openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
+					Expect(openedFilesList).NotTo(BeNil())
+					Expect(openedFilesList.Map()).To(HaveLen(1))
+				})
 
-				By("checking that file was removed at Close call", func() {
-					Expect(isExists(name)).To(BeFalse())
+				It("checks Close", func() {
+					s3FileEntry := lookUpForSingleEntry()
+					Expect(s3FileEntry.Added).To(BeTemporally("~", time.Now(), 2*time.Second))
+
+					name := s3FileEntry.S3File.Name()
+					Expect(name).To(Equal(inTempDir(key1)))
+					Expect(s3FileEntry.S3File.Close()).To(Succeed())
+					closed = true
+
+					By("checking that file was removed at Close call", func() {
+						Expect(isExists(name)).To(BeFalse())
+					})
+				})
+
+				It("checks autoclosing", func() {
+					s3FileEntry := lookUpForSingleEntry()
+					Eventually(func() bool {
+						return isExists(s3FileEntry.S3File.Name())
+					}, 3*ttl, ttl/2).Should(BeFalse()) // to give slightly more time to the cleaner goroutine
+					closed = true
+
+					err := s3FileEntry.S3File.Close()
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring(fs.ErrClosed.Error()))
+				})
+
+				It("checks reading from opened file", func() {
+					size, err := f.Seek(0, io.SeekEnd)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(size).To(BeEquivalentTo(len(content1)))
+
+					_, err = f.Seek(0, io.SeekStart)
+					Expect(err).NotTo(HaveOccurred())
+
+					b := bytes.NewBuffer([]byte{})
+					n, err := io.Copy(b, f)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(n).To(BeEquivalentTo(size))
+					Expect(b.Bytes()).To(BeEquivalentTo([]byte(content1)))
+				})
+
+				It("checks that can't write to opened file", func() {
+					n, err := f.Write([]byte("123"))
+					Expect(err).To(HaveOccurred())
+					Expect(n).To(BeZero())
 				})
 			})
 
-			It("checks autoclosing", func() {
-				s3FileEntry := lookUpForSingleEntry()
-				Eventually(func() bool {
-					return isExists(s3FileEntry.S3File.Name())
-				}, 3*ttl, ttl/2).Should(BeFalse()) // to give slightly more time to the cleaner goroutine
+			Context("Creating file", func() {
+				JustBeforeEach(func() {
+					f, err = s3fs.Create(key1)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(f).NotTo(BeNil())
+					closed = false
 
-				closed = true
-				err := s3FileEntry.S3File.Close()
-				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring(fs.ErrClosed.Error()))
-			})
+					openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
+					Expect(openedFilesList).NotTo(BeNil())
+					Expect(openedFilesList.Map()).To(HaveLen(1))
+				})
 
-			It("checks reading from opened file", func() {
-				size, err := f.Seek(0, io.SeekEnd)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(size).To(BeEquivalentTo(len(content1)))
+				It("checks Close", func() {
+					s3FileEntry := lookUpForSingleEntry()
+					Expect(s3FileEntry.Added).To(BeTemporally("~", time.Now(), 2*time.Second))
 
-				_, err = f.Seek(0, io.SeekStart)
-				Expect(err).NotTo(HaveOccurred())
+					name := s3FileEntry.S3File.Name()
+					Expect(name).To(Equal(inTempDir(key1)))
+					Expect(s3FileEntry.S3File.Close()).To(Succeed())
+					closed = true
 
-				b := make([]byte, size)
-				n, err := f.Read(b)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(n).To(BeEquivalentTo(size))
-				Expect(b).To(BeEquivalentTo([]byte(content1)))
-			})
+					By("checking that file was removed at Close call", func() {
+						Expect(isExists(name)).To(BeFalse())
+					})
+				})
 
-			It("checks that can't write to opened file", func() {
-				n, err := f.Write([]byte("123"))
-				Expect(err).To(HaveOccurred())
-				Expect(n).To(BeZero())
+				It("checks autoclosing", func() {
+					s3FileEntry := lookUpForSingleEntry()
+					Eventually(func() bool {
+						return isExists(s3FileEntry.S3File.Name())
+					}, 3*ttl, ttl/2).Should(BeFalse()) // to give slightly more time to the cleaner goroutine
+
+					closed = true
+					err := s3FileEntry.S3File.Close()
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring(fs.ErrClosed.Error()))
+				})
+
+				It("checks that created file is truncated", func() {
+					size, err := f.Seek(0, io.SeekEnd)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(size).To(BeZero())
+				})
+
+				It("checks that can read and write to created file", func() {
+					content := "123 123"
+					By("writing into file", func() {
+						n, err := f.Write([]byte(content))
+						Expect(err).NotTo(HaveOccurred())
+						Expect(n).To(Equal(len(content)))
+					})
+
+					By("reading file", func() {
+						_, err := f.Seek(0, io.SeekStart)
+						Expect(err).NotTo(HaveOccurred())
+
+						b := bytes.NewBuffer([]byte{})
+						n, err := io.Copy(b, f)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(n).To(BeEquivalentTo(len(content)))
+					})
+				})
+
+				It("checks that an object will be created from written file after it will be closed", func() {
+					content := "123 123"
+					By("writing into file", func() {
+						n, err := f.Write([]byte(content))
+						Expect(err).NotTo(HaveOccurred())
+						Expect(n).To(Equal(len(content)))
+					})
+					Expect(f.Close()).To(Succeed())
+					closed = true
+
+					By("reading from object", func() {
+						b, err := s3fs.ReadFile(key1)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(b).To(BeEquivalentTo([]byte(content)))
+					})
+				})
 			})
 		})
 
