@@ -4,22 +4,39 @@ import (
 	"bytes"
 	"io"
 	"io/fs"
+	"sync"
 )
 
 // S3OpenedFile implements a wrapper around File
 type S3OpenedFile struct {
-	s3         *S3    // pointer back to S3 control object
-	underlying File   // underlying local file
+	s3 *S3 // pointer back to S3 control object
+
+	underlyingMu sync.Mutex
+	underlying   File // underlying local file
+
 	localName  string // underlying local file path
 	objectName string // S3 object key
-	mode       int
 
 	changed bool
 }
 
+// Underlying returns an underlying file
+func (of *S3OpenedFile) Underlying() File {
+	of.underlyingMu.Lock()
+	defer of.underlyingMu.Unlock()
+	return of.underlying
+}
+
+// SetUnderlying file
+func (of *S3OpenedFile) SetUnderlying(f File) {
+	of.underlyingMu.Lock()
+	defer of.underlyingMu.Unlock()
+	of.underlying = f
+}
+
 // Sync makes S3OpenedFile to implement File
 func (of *S3OpenedFile) Sync() error { // todo does it work as intended?
-	if err := of.underlying.Sync(); err != nil { // does this work?
+	if err := of.Underlying().Sync(); err != nil { // does this work?
 		return err
 	}
 	offset, err := of.Seek(0, io.SeekCurrent)
@@ -30,7 +47,7 @@ func (of *S3OpenedFile) Sync() error { // todo does it work as intended?
 		return err
 	}
 	buf := bytes.NewBuffer([]byte{})
-	if _, err := io.Copy(buf, of.underlying); err != nil {
+	if _, err := io.Copy(buf, of.Underlying()); err != nil {
 		return err
 	}
 	if _, err := of.Seek(offset, io.SeekStart); err != nil {
@@ -47,34 +64,34 @@ func (of *S3OpenedFile) Sync() error { // todo does it work as intended?
 // Truncate makes S3OpenedFile to implement File
 func (of *S3OpenedFile) Truncate(size int64) error {
 	of.changed = true
-	return of.underlying.Truncate(size)
+	return of.Underlying().Truncate(size)
 }
 
 // Seek makes S3OpenedFile to implement File
 func (of *S3OpenedFile) Seek(offset int64, whence int) (int64, error) {
-	return of.underlying.Seek(offset, whence)
+	return of.Underlying().Seek(offset, whence)
 }
 
 // Stat makes S3OpenedFile to implement File
-func (of *S3OpenedFile) Stat() (fs.FileInfo, error) { return of.underlying.Stat() }
+func (of *S3OpenedFile) Stat() (fs.FileInfo, error) { return of.Underlying().Stat() }
 
 // Read makes S3OpenedFile to implement File
-func (of *S3OpenedFile) Read(bytes []byte) (int, error) { return of.underlying.Read(bytes) }
+func (of *S3OpenedFile) Read(bytes []byte) (int, error) { return of.Underlying().Read(bytes) }
 
 // ReadAt makes S3OpenedFile to implement File
 func (of *S3OpenedFile) ReadAt(p []byte, off int64) (n int, err error) {
-	return of.underlying.ReadAt(p, off)
+	return of.Underlying().ReadAt(p, off)
 }
 
 // Write makes S3OpenedFile to implement File
 func (of *S3OpenedFile) Write(p []byte) (n int, err error) {
 	of.changed = true
-	return of.underlying.Write(p)
+	return of.Underlying().Write(p)
 }
 
 // Close makes S3OpenedFile to implement File. It closed the underlying File and removes it from local file system.
 func (of *S3OpenedFile) Close() error {
-	if err := of.underlying.Close(); err != nil { // close the underlying file
+	if err := of.Underlying().Close(); err != nil { // close the underlying file
 		of.s3.logger.Errorf("failed to of.underlying.Close() on file %q: %v", of.localName, err)
 		return err
 	}
@@ -89,14 +106,8 @@ func (of *S3OpenedFile) Close() error {
 	}
 	of.changed = false
 
-	defer func() { // unlock and delete opened files list entry
-		of.s3.OpenedFilesListLock()
-		defer of.s3.OpenedFilesListUnlock()
-		if entry := of.s3.OpenedFilesList().m[of.localName]; entry != nil {
-			entry.Unlock()
-			delete(of.s3.OpenedFilesList().m, of.localName)
-		}
-	}()
+	// unlock and delete opened files list entry
+	defer of.s3.OpenedFilesList().DeleteAndUnlockEntry(of.localName)
 
 	exists, err := of.s3.openedFilesLocalFS.Exists(of.localName) // if local file still exists...
 	if err != nil {
@@ -112,5 +123,8 @@ func (of *S3OpenedFile) Close() error {
 	return nil
 }
 
-// Name returns local file name
-func (of *S3OpenedFile) Name() string { return of.localName }
+// LocalName returns local file name
+func (of *S3OpenedFile) LocalName() string { return of.localName }
+
+// Name returns S3 object name
+func (of *S3OpenedFile) Name() string { return of.objectName }

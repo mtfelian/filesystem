@@ -190,10 +190,10 @@ func (s *S3) openedFilesListCleaning() {
 					continue
 				}
 				s3FilesToClose = append(s3FilesToClose, s.openedFilesList.m[key].S3File)
-				delete(s.openedFilesList.m, key)
 			}
 		}()
 		for _, s3File := range s3FilesToClose {
+			s.logger.Infof("openedFilesListCleaning: autoclosing file %q", s3File.localName)
 			if err := s3File.Close(); err != nil {
 				s.logger.Errorf("openedFilesListCleaning: failed to s3File.Close(): %v", err)
 			}
@@ -226,14 +226,25 @@ func (s *S3) openFile(name string, fileMode int) (File, error) {
 
 	var s3OpenedFile *S3OpenedFilesListEntry
 	func() { // checking lock on entry
-		s.openedFilesList.Lock()
-		defer s.openedFilesList.Unlock()
-		s3OpenedFile, _ = s.openedFilesList.m[localFileName]
+		s3OpenedFile, _ = s.openedFilesList.Map()[localFileName]
 	}()
 
 	if err := s.openedFilesLocalFS.MakePathAll(filepath.Dir(localFileName)); err != nil {
 		return nil, err
 	}
+
+	if s3OpenedFile == nil {
+		s3OpenedFile = &S3OpenedFilesListEntry{
+			Added: s.now(),
+			S3File: &S3OpenedFile{
+				s3:         s,
+				underlying: nil, // to be written below
+				localName:  localFileName,
+				objectName: name,
+			},
+		}
+	}
+	s.openedFilesList.AddAndLockEntry(localFileName, s3OpenedFile)
 
 	if fileMode != fileModeCreate { // fileModeOpen or fileModeWrite, so we create local file from S3 object
 		object, err := s.minioClient.GetObject(s.ctx, s.bucketName, name, minio.GetObjectOptions{})
@@ -252,35 +263,16 @@ func (s *S3) openFile(name string, fileMode int) (File, error) {
 		}
 	}
 
-	if s3OpenedFile == nil {
-		s3OpenedFile = &S3OpenedFilesListEntry{
-			Added: s.now(),
-			S3File: &S3OpenedFile{
-				s3:         s,
-				underlying: nil, // to be written below
-				localName:  localFileName,
-				objectName: name,
-				mode:       fileMode,
-			},
-		}
-		s3OpenedFile.Lock()
-	}
-
+	var f File
 	switch fileMode {
 	case fileModeOpen:
-		s3OpenedFile.S3File.underlying, err = s.openedFilesLocalFS.Open(localFileName)
+		f, err = s.openedFilesLocalFS.Open(localFileName)
 	case fileModeCreate:
-		s3OpenedFile.S3File.underlying, err = s.openedFilesLocalFS.Create(localFileName)
+		f, err = s.openedFilesLocalFS.Create(localFileName)
 	case fileModeWrite:
-		s3OpenedFile.S3File.underlying, err = s.openedFilesLocalFS.OpenW(localFileName)
+		f, err = s.openedFilesLocalFS.OpenW(localFileName)
 	}
-
-	func() { // adding entry to the list
-		s.OpenedFilesListLock()
-		defer s.OpenedFilesListUnlock()
-
-		s.openedFilesList.m[localFileName] = s3OpenedFile
-	}()
+	s3OpenedFile.S3File.SetUnderlying(f)
 
 	return s3OpenedFile.S3File, err
 }
@@ -289,18 +281,21 @@ func (s *S3) openFile(name string, fileMode int) (File, error) {
 // An object will be downloaded from S3 storage and opened as a local file for reading.
 // To remove the actual local file and write out into S3 object
 // it should be properly closed by calling Close() on the caller's side.
+// Calls to Open, Create, OpenW and S3OpenedFile.Close are concurrent-safe and mutually locking.
 func (s *S3) Open(name string) (File, error) { return s.openFile(name, fileModeOpen) }
 
 // Create file with given name in the client's bucket.
 // A file will be created locally for reading, writing, truncating.
 // To remove the actual local file and write out into S3 object
 // it should be properly closed by calling Close() on the caller's side.
+// Calls to Open, Create, OpenW and S3OpenedFile.Close are concurrent-safe and mutually locking.
 func (s *S3) Create(name string) (File, error) { return s.openFile(name, fileModeCreate) }
 
 // OpenW opens file in the FileSystem for writing.
 // An object will be downloaded from S3 storage and opened as a local file for writing.
 // To remove the actual local file and write out into S3 object
 // it should be properly closed by calling Close() on the caller's side.
+// Calls to Open, Create, OpenW and S3OpenedFile.Close are concurrent-safe and mutually locking.
 func (s *S3) OpenW(name string) (File, error) { return s.openFile(name, fileModeWrite) }
 
 // ReadFile by it's name from the client's bucket

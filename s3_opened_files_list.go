@@ -2,33 +2,7 @@ package filesystem
 
 import (
 	"sync"
-	"time"
 )
-
-// S3OpenedFilesListEntry is an walkDirEntry of opened files list
-type S3OpenedFilesListEntry struct {
-	mu     sync.RWMutex
-	Added  time.Time
-	S3File *S3OpenedFile
-}
-
-// Lock or RLock the entry according to S3File Open mode
-func (s3ofle *S3OpenedFilesListEntry) Lock() {
-	if s3ofle.S3File.mode == fileModeOpen {
-		s3ofle.mu.RLock()
-	} else {
-		s3ofle.mu.Lock()
-	}
-}
-
-// Unlock or RUnlock the entry according to S3File Open mode
-func (s3ofle *S3OpenedFilesListEntry) Unlock() {
-	if s3ofle.S3File.mode == fileModeOpen {
-		s3ofle.mu.RUnlock()
-	} else {
-		s3ofle.mu.Unlock()
-	}
-}
 
 // S3OpenedFilesList represents S3 opened files list
 type S3OpenedFilesList struct {
@@ -42,4 +16,41 @@ func NewS3OpenedFilesList() *S3OpenedFilesList {
 }
 
 // Map returns opened file list underlying map
-func (s3ofl *S3OpenedFilesList) Map() map[string]*S3OpenedFilesListEntry { return s3ofl.m }
+func (ofl *S3OpenedFilesList) Map() map[string]*S3OpenedFilesListEntry {
+	ofl.Lock()
+	defer ofl.Unlock()
+	return ofl.m
+}
+
+// Len returns length of list
+func (ofl *S3OpenedFilesList) Len() int {
+	ofl.Lock()
+	defer ofl.Unlock()
+	return len(ofl.m)
+}
+
+// AddAndLockEntry adds an entry to the list and locks it
+func (ofl *S3OpenedFilesList) AddAndLockEntry(localFileName string, entry *S3OpenedFilesListEntry) {
+	entry.Lock()
+	ofl.Lock()
+	defer ofl.Unlock()
+	ofl.m[localFileName] = entry
+}
+
+// DeleteAndUnlockEntry deletes and unlocks an entry from the list if it exists
+func (ofl *S3OpenedFilesList) DeleteAndUnlockEntry(localFileName string) {
+	ofl.Lock()
+	defer ofl.Unlock()
+	if entry := ofl.m[localFileName]; entry != nil {
+		delete(ofl.m, localFileName)
+		entry.Unlock()
+	}
+}
+
+// existsEntry returns whether the entry exists
+func (ofl *S3OpenedFilesList) existsEntry(localFileName string) bool {
+	ofl.Lock()
+	defer ofl.Unlock()
+	_, ok := ofl.m[localFileName]
+	return ok
+}

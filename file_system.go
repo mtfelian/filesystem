@@ -14,6 +14,7 @@ type File interface {
 	io.Seeker
 	Truncate(int64) error
 	Sync() error
+	Name() string
 }
 
 // FilesInfo is a slice of FileInfo

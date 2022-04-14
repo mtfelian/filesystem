@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -159,8 +160,6 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			})
 
 			lookUpForSingleEntry := func() *filesystem.S3OpenedFilesListEntry {
-				s3fs.(*filesystem.S3).OpenedFilesListLock()
-				defer s3fs.(*filesystem.S3).OpenedFilesListUnlock()
 				for key, value := range openedFilesList.Map() {
 					exists, err := fsLocal.Exists(key)
 					ExpectWithOffset(1, err).NotTo(HaveOccurred())
@@ -186,14 +185,14 @@ var _ = Describe("S3 FileSystem implementation", func() {
 
 					openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
 					Expect(openedFilesList).NotTo(BeNil())
-					Expect(openedFilesList.Map()).To(HaveLen(1))
+					Expect(openedFilesList.Len()).To(Equal(1))
 				})
 
 				It("checks Close", func() {
 					s3FileEntry := lookUpForSingleEntry()
 					Expect(s3FileEntry.Added).To(BeTemporally("~", time.Now(), 2*time.Second))
 
-					name := s3FileEntry.S3File.Name()
+					name := s3FileEntry.S3File.LocalName()
 					Expect(name).To(Equal(s3fs.(*filesystem.S3).TempFileName(key1)))
 					Expect(s3FileEntry.S3File.Close()).To(Succeed())
 					closed = true
@@ -206,7 +205,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				It("checks autoclosing", func() {
 					s3FileEntry := lookUpForSingleEntry()
 					Eventually(func() bool {
-						return isExists(s3FileEntry.S3File.Name())
+						return isExists(s3FileEntry.S3File.LocalName())
 					}, 3*ttl, ttl/2).Should(BeFalse()) // to give slightly more time to the cleaner goroutine
 					closed = true
 
@@ -246,14 +245,14 @@ var _ = Describe("S3 FileSystem implementation", func() {
 
 					openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
 					Expect(openedFilesList).NotTo(BeNil())
-					Expect(openedFilesList.Map()).To(HaveLen(1))
+					Expect(openedFilesList.Len()).To(Equal(1))
 				})
 
 				It("checks Close", func() {
 					s3FileEntry := lookUpForSingleEntry()
 					Expect(s3FileEntry.Added).To(BeTemporally("~", time.Now(), 2*time.Second))
 
-					name := s3FileEntry.S3File.Name()
+					name := s3FileEntry.S3File.LocalName()
 					Expect(name).To(Equal(s3fs.(*filesystem.S3).TempFileName(key1)))
 					Expect(s3FileEntry.S3File.Close()).To(Succeed())
 					closed = true
@@ -266,7 +265,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				It("checks autoclosing", func() {
 					s3FileEntry := lookUpForSingleEntry()
 					Eventually(func() bool {
-						return isExists(s3FileEntry.S3File.Name())
+						return isExists(s3FileEntry.S3File.LocalName())
 					}, 3*ttl, ttl/2).Should(BeFalse()) // to give slightly more time to the cleaner goroutine
 
 					closed = true
@@ -327,14 +326,14 @@ var _ = Describe("S3 FileSystem implementation", func() {
 
 					openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
 					Expect(openedFilesList).NotTo(BeNil())
-					Expect(openedFilesList.Map()).To(HaveLen(1))
+					Expect(openedFilesList.Len()).To(Equal(1))
 				})
 
 				It("checks Close", func() {
 					s3FileEntry := lookUpForSingleEntry()
 					Expect(s3FileEntry.Added).To(BeTemporally("~", time.Now(), 2*time.Second))
 
-					name := s3FileEntry.S3File.Name()
+					name := s3FileEntry.S3File.LocalName()
 					Expect(name).To(Equal(s3fs.(*filesystem.S3).TempFileName(key1)))
 					Expect(s3FileEntry.S3File.Close()).To(Succeed())
 					closed = true
@@ -347,7 +346,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				It("checks autoclosing", func() {
 					s3FileEntry := lookUpForSingleEntry()
 					Eventually(func() bool {
-						return isExists(s3FileEntry.S3File.Name())
+						return isExists(s3FileEntry.S3File.LocalName())
 					}, 3*ttl, ttl/2).Should(BeFalse()) // to give slightly more time to the cleaner goroutine
 					closed = true
 
@@ -383,24 +382,65 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				})
 			})
 
-			//Context("concurrent opening file for reading and writing", func() {
-			//	JustBeforeEach(func() {
-			//		f, err = s3fs.Open(key1)
-			//		Expect(err).NotTo(HaveOccurred())
-			//		Expect(f).NotTo(BeNil())
-			//		closed = false
-			//
-			//		openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
-			//		Expect(openedFilesList).NotTo(BeNil())
-			//		Expect(openedFilesList.Map()).To(HaveLen(1))
-			//	})
-			//
-			//	It("checks concurrent Open with Open", func() {
-			//		fw, err := s3fs.Open(key1)
-			//		Expect(err).NotTo(HaveOccurred())
-			//		Expect(fw).NotTo(BeNil())
-			//	})
-			//})
+			Context("concurrent opening file for reading (writing behavior expected to be same)", func() {
+				JustBeforeEach(func() {
+					f, err = s3fs.Open(key1)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(f).NotTo(BeNil())
+					closed = false
+
+					openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
+					Expect(openedFilesList).NotTo(BeNil())
+					Expect(openedFilesList.Len()).To(Equal(1))
+				})
+
+				It("checks concurrent Open with Open", func() {
+					By("checking that opened file is still on the list", func() {
+						openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
+						Expect(openedFilesList).NotTo(BeNil())
+						Expect(openedFilesList.Len()).To(Equal(1))
+					})
+
+					var wg sync.WaitGroup
+					amount := 5
+					wg.Add(amount)
+					now := time.Now()
+					f := func() {
+						GinkgoRecover()
+						defer wg.Done()
+						// opening waits unlock by autoclosing...
+						fw, err := s3fs.Open(key1)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fw).NotTo(BeNil())
+
+						By("checking that opened file is again on the list", func() {
+							openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
+							Expect(openedFilesList).NotTo(BeNil())
+							Expect(openedFilesList.Len()).To(Equal(1))
+						})
+					}
+					for i := 0; i < amount; i++ {
+						go f()
+					}
+					wg.Wait()
+					Expect(time.Now()).To(BeTemporally("~", now.Add(time.Duration(amount)*ttl), ttl),
+						"expected time passed should be: n*ttl")
+
+					By("waiting for autoclosing", func() {
+						s3FileEntry := lookUpForSingleEntry()
+						Eventually(func() bool {
+							return isExists(s3FileEntry.S3File.LocalName())
+						}, 3*ttl, ttl/2).Should(BeFalse()) // to give slightly more time to the cleaner goroutine
+						closed = true
+					})
+
+					By("checking that opened file is no more on the list", func() {
+						openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
+						Expect(openedFilesList).NotTo(BeNil())
+						Expect(openedFilesList.Len()).To(Equal(0))
+					})
+				})
+			})
 		})
 
 		Describe("Reader", func() {
