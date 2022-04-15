@@ -160,6 +160,8 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			})
 
 			lookUpForSingleEntry := func() *filesystem.S3OpenedFilesListEntry {
+				openedFilesList.Lock()
+				defer openedFilesList.Unlock()
 				for key, value := range openedFilesList.Map() {
 					exists, err := fsLocal.Exists(key)
 					ExpectWithOffset(1, err).NotTo(HaveOccurred())

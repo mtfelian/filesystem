@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/mtfelian/utils"
@@ -24,10 +25,18 @@ func (l *Local) WithContext(ctx context.Context) FileSystem { return l }
 func (l *Local) Open(name string) (File, error) { return os.Open(name) }
 
 // Create file in the FileSystem
-func (l *Local) Create(name string) (File, error) { return os.Create(name) }
+func (l *Local) Create(name string) (File, error) {
+	if err := os.MkdirAll(path.Dir(name), 0777); err != nil {
+		return nil, err
+	}
+	return os.Create(name)
+}
 
 // OpenW opens file in the FileSystem for writing
 func (l *Local) OpenW(name string) (File, error) {
+	if err := os.MkdirAll(path.Dir(name), 0777); err != nil {
+		return nil, err
+	}
 	return os.OpenFile(name, os.O_WRONLY, 0666)
 }
 
@@ -36,6 +45,9 @@ func (l *Local) ReadFile(name string) ([]byte, error) { return os.ReadFile(name)
 
 // WriteFile by name
 func (l *Local) WriteFile(name string, data []byte) error {
+	if err := os.MkdirAll(path.Dir(name), 0777); err != nil {
+		return err
+	}
 	return os.WriteFile(name, data, 0644)
 }
 

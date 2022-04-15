@@ -16,11 +16,7 @@ func NewS3OpenedFilesList() *S3OpenedFilesList {
 }
 
 // Map returns opened file list underlying map
-func (ofl *S3OpenedFilesList) Map() map[string]*S3OpenedFilesListEntry {
-	ofl.Lock()
-	defer ofl.Unlock()
-	return ofl.m
-}
+func (ofl *S3OpenedFilesList) Map() map[string]*S3OpenedFilesListEntry { return ofl.m }
 
 // Len returns length of list
 func (ofl *S3OpenedFilesList) Len() int {

@@ -226,6 +226,8 @@ func (s *S3) openFile(name string, fileMode int) (File, error) {
 
 	var s3OpenedFile *S3OpenedFilesListEntry
 	func() { // checking lock on entry
+		s.OpenedFilesListLock()
+		defer s.OpenedFilesListUnlock()
 		s3OpenedFile, _ = s.openedFilesList.Map()[localFileName]
 	}()
 
@@ -289,14 +291,24 @@ func (s *S3) Open(name string) (File, error) { return s.openFile(name, fileModeO
 // To remove the actual local file and write out into S3 object
 // it should be properly closed by calling Close() on the caller's side.
 // Calls to Open, Create, OpenW and S3OpenedFile.Close are concurrent-safe and mutually locking.
-func (s *S3) Create(name string) (File, error) { return s.openFile(name, fileModeCreate) }
+func (s *S3) Create(name string) (File, error) {
+	if err := s.MakePathAll(path.Dir(name)); err != nil {
+		return nil, err
+	}
+	return s.openFile(name, fileModeCreate)
+}
 
 // OpenW opens file in the FileSystem for writing.
 // An object will be downloaded from S3 storage and opened as a local file for writing.
 // To remove the actual local file and write out into S3 object
 // it should be properly closed by calling Close() on the caller's side.
 // Calls to Open, Create, OpenW and S3OpenedFile.Close are concurrent-safe and mutually locking.
-func (s *S3) OpenW(name string) (File, error) { return s.openFile(name, fileModeWrite) }
+func (s *S3) OpenW(name string) (File, error) {
+	if err := s.MakePathAll(path.Dir(name)); err != nil {
+		return nil, err
+	}
+	return s.openFile(name, fileModeWrite)
+}
 
 // ReadFile by it's name from the client's bucket
 func (s *S3) ReadFile(name string) ([]byte, error) {
