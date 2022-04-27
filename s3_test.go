@@ -425,7 +425,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 						go f()
 					}
 					wg.Wait()
-					Expect(time.Now()).To(BeTemporally("~", now.Add(time.Duration(amount)*ttl), ttl),
+					Expect(time.Now()).To(BeTemporally("~", now.Add(time.Duration(amount)*ttl), 2*ttl),
 						"expected time passed should be: n*ttl")
 
 					By("waiting for autoclosing", func() {
@@ -848,7 +848,8 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(fi.ModTime()).To(BeTemporally("~", time.Now(), 2*time.Second))
 				Expect(fi.IsDir()).To(BeFalse())
-				Expect(fi.Name()).To(Equal(key1))
+				Expect(fi.FullName()).To(Equal(key1))
+				Expect(fi.Name()).To(Equal(path.Base(key1)))
 				Expect(fi.Size()).To(BeEquivalentTo(len(content1)))
 			})
 
@@ -862,7 +863,8 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(fi.ModTime()).To(BeTemporally("~", time.Now(), 2*time.Second))
 				Expect(fi.IsDir()).To(BeTrue())
-				Expect(fi.Name()).To(Equal(dir2))
+				Expect(fi.FullName()).To(Equal(dir2))
+				Expect(fi.Name()).To(Equal(path.Base(dir2)))
 				Expect(fi.Size()).To(BeZero())
 			})
 
@@ -882,7 +884,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				fi, err := s3fs.ReadDir(dir2)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(fi).To(HaveLen(2))
-				names := fi.Names()
+				names := fi.FullNames()
 				Expect(names).To(ConsistOf([]string{key1, key2}))
 			})
 
@@ -895,7 +897,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					fi, err := s3fs.ReadDir(dir0)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fi).To(HaveLen(1))
-					names := fi.Names()
+					names := fi.FullNames()
 					Expect(names).To(ConsistOf([]string{key3}))
 				})
 
@@ -908,7 +910,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					fi, err := s3fs.ReadDir(dir0)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fi).To(BeEmpty())
-					names := fi.Names()
+					names := fi.FullNames()
 					Expect(names).To(BeEmpty())
 				})
 
@@ -948,7 +950,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					fi, err := s3fs.ReadDir(dir0)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fi).To(HaveLen(2))
-					names := fi.Names()
+					names := fi.FullNames()
 					Expect(names).To(ConsistOf([]string{dir1, key3}))
 				})
 
@@ -961,7 +963,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					fi, err := s3fs.ReadDir(dir0)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fi).To(BeEmpty())
-					names := fi.Names()
+					names := fi.FullNames()
 					Expect(names).To(BeEmpty())
 				})
 			})
@@ -972,7 +974,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				var entriesWalked []walkDirEntry
 				Expect(s3fs.WalkDir("/", func(name string, de filesystem.DirEntry, e error) error {
 					if de != nil {
-						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
+						entriesWalked = append(entriesWalked, walkDirEntry{name: de.FullName(), isDir: de.IsDir()})
 					}
 					return nil
 				})).To(Succeed())
@@ -991,7 +993,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				var entriesWalked []walkDirEntry
 				Expect(s3fs.WalkDir(dir2, func(name string, de filesystem.DirEntry, e error) error {
 					if de != nil {
-						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
+						entriesWalked = append(entriesWalked, walkDirEntry{name: de.FullName(), isDir: de.IsDir()})
 					}
 					return nil
 				})).To(Succeed())
@@ -1006,7 +1008,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				var entriesWalked []walkDirEntry
 				Expect(s3fs.WalkDir(key2, func(name string, de filesystem.DirEntry, e error) error {
 					if de != nil {
-						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
+						entriesWalked = append(entriesWalked, walkDirEntry{name: de.FullName(), isDir: de.IsDir()})
 					}
 					return nil
 				})).To(Succeed())
@@ -1019,7 +1021,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				var entriesWalked []walkDirEntry
 				Expect(s3fs.IsNotExist(s3fs.WalkDir("/4/5/6/7/", func(name string, de filesystem.DirEntry, e error) error {
 					if de != nil {
-						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
+						entriesWalked = append(entriesWalked, walkDirEntry{name: de.FullName(), isDir: de.IsDir()})
 					}
 					return nil
 				}))).To(BeTrue())
@@ -1030,7 +1032,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				var entriesWalked []walkDirEntry
 				Expect(s3fs.IsNotExist(s3fs.WalkDir("/4/5/6/7", func(name string, de filesystem.DirEntry, e error) error {
 					if de != nil {
-						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
+						entriesWalked = append(entriesWalked, walkDirEntry{name: de.FullName(), isDir: de.IsDir()})
 					}
 					return nil
 				}))).To(BeTrue())
@@ -1293,7 +1295,8 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(fi.ModTime()).To(BeZero(), "not defined if empty directories are not emulated")
 				Expect(fi.IsDir()).To(BeTrue())
-				Expect(fi.Name()).To(Equal(dir2))
+				Expect(fi.FullName()).To(Equal(dir2))
+				Expect(fi.Name()).To(Equal(path.Base(dir2)))
 				Expect(fi.Size()).To(BeZero())
 			})
 
@@ -1308,7 +1311,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				fi, err := s3fs.ReadDir(dir2)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(fi).To(HaveLen(2))
-				names := fi.Names()
+				names := fi.FullNames()
 				Expect(names).To(ConsistOf([]string{key1, key2}))
 			})
 
@@ -1321,7 +1324,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					fi, err := s3fs.ReadDir(dir0)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fi).To(HaveLen(1))
-					names := fi.Names()
+					names := fi.FullNames()
 					Expect(names).To(ConsistOf([]string{key3}))
 				})
 
@@ -1334,7 +1337,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					fi, err := s3fs.ReadDir(dir0)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fi).To(BeEmpty())
-					names := fi.Names()
+					names := fi.FullNames()
 					Expect(names).To(BeEmpty())
 				})
 			})
@@ -1348,7 +1351,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					fi, err := s3fs.ReadDir(dir0)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fi).To(HaveLen(2))
-					names := fi.Names()
+					names := fi.FullNames()
 					Expect(names).To(ConsistOf([]string{dir1, key3}))
 				})
 
@@ -1361,7 +1364,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					fi, err := s3fs.ReadDir(dir0)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(fi).To(BeEmpty())
-					names := fi.Names()
+					names := fi.FullNames()
 					Expect(names).To(BeEmpty())
 				})
 			})
@@ -1372,7 +1375,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				var entriesWalked []walkDirEntry
 				Expect(s3fs.WalkDir("/", func(name string, de filesystem.DirEntry, e error) error {
 					if de != nil {
-						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
+						entriesWalked = append(entriesWalked, walkDirEntry{name: de.FullName(), isDir: de.IsDir()})
 					}
 					return nil
 				})).To(Succeed())
@@ -1391,7 +1394,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				var entriesWalked []walkDirEntry
 				Expect(s3fs.WalkDir(dir2, func(name string, de filesystem.DirEntry, e error) error {
 					if de != nil {
-						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
+						entriesWalked = append(entriesWalked, walkDirEntry{name: de.FullName(), isDir: de.IsDir()})
 					}
 					return nil
 				})).To(Succeed())
@@ -1406,7 +1409,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				var entriesWalked []walkDirEntry
 				Expect(s3fs.WalkDir("/4/5/6/7/", func(name string, de filesystem.DirEntry, e error) error {
 					if de != nil {
-						entriesWalked = append(entriesWalked, walkDirEntry{name: de.Name(), isDir: de.IsDir()})
+						entriesWalked = append(entriesWalked, walkDirEntry{name: de.FullName(), isDir: de.IsDir()})
 					}
 					return nil
 				})).To(Equal(filesystem.ErrDirectoryNotExists))

@@ -13,6 +13,9 @@ type S3DirEntry struct {
 	s3 *S3
 }
 
+// FullName makes S3DirEntry to implement DirEntry. Returns full name of the underlying FileInfo object
+func (s S3DirEntry) FullName() string { return s.fi.FullName() }
+
 // Name makes S3DirEntry to implement DirEntry. Returns name of the underlying FileInfo object
 func (s S3DirEntry) Name() string { return s.fi.Name() }
 

@@ -699,10 +699,10 @@ func (s *S3) walkDir(name string, d DirEntry, walkDirFunc WalkDirFunc) error {
 	}
 
 	for _, fi := range fsi {
-		if s.nameIsADirectoryStub(fi.Name()) {
+		if s.nameIsADirectoryStub(fi.FullName()) {
 			continue
 		}
-		if err = s.walkDir(fi.Name(), S3DirEntry{oi: fi.(S3FileInfo).oi, fi: fi, s3: fi.Sys().(*S3)},
+		if err = s.walkDir(fi.FullName(), S3DirEntry{oi: fi.(S3FileInfo).oi, fi: fi, s3: fi.Sys().(*S3)},
 			walkDirFunc); err != nil {
 			if err == ErrSkipDir {
 				break

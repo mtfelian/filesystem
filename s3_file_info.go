@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"io/fs"
+	"path"
 	"strings"
 	"time"
 
@@ -22,8 +23,11 @@ func NewS3FileInfoStub(s3 *S3, key string, modTime time.Time) S3FileInfo {
 // NewS3FileInfo returns new S3FileInfo object
 func NewS3FileInfo(s3 *S3, oi minio.ObjectInfo) S3FileInfo { return S3FileInfo{oi: oi, s3: s3} }
 
-// Name makes S3FileInfo to implement FileInfo. Returns key of S3 object
-func (s S3FileInfo) Name() string { return s.oi.Key }
+// Name makes S3FileInfo to implement FileInfo. Returns last part (file name) of the key of S3 object
+func (s S3FileInfo) Name() string { return path.Base(s.FullName()) }
+
+// FullName makes S3FileInfo to implement FileInfo. Returns last part (file name) of the key of S3 object
+func (s S3FileInfo) FullName() string { return s.oi.Key }
 
 // Size makes S3FileInfo to implement FileInfo. Returns size of S3 object
 func (s S3FileInfo) Size() int64 { return s.oi.Size }

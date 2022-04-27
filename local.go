@@ -107,7 +107,13 @@ func (l *Local) Rename(from, to string) error {
 }
 
 // Stat returns a FileInfo describing the named file
-func (l *Local) Stat(name string) (FileInfo, error) { return os.Stat(name) }
+func (l *Local) Stat(name string) (FileInfo, error) {
+	stat, err := os.Stat(name)
+	if err != nil {
+		return nil, err
+	}
+	return NewLocalFileInfo(stat, name), nil
+}
 
 // ReadDir with the name given
 func (l *Local) ReadDir(name string) (FilesInfo, error) {
@@ -117,7 +123,7 @@ func (l *Local) ReadDir(name string) (FilesInfo, error) {
 	}
 	res := make(FilesInfo, len(fi))
 	for i := range fi {
-		res[i] = fi[i]
+		res[i] = NewLocalFileInfo(fi[i], name)
 	}
 	return res, nil
 }
@@ -125,6 +131,10 @@ func (l *Local) ReadDir(name string) (FilesInfo, error) {
 // WalkDir traverses the filesystem from the given directory
 func (l *Local) WalkDir(root string, walkDirFunc WalkDirFunc) error {
 	return filepath.WalkDir(root, func(path string, info fs.DirEntry, err error) error {
-		return walkDirFunc(path, info, err)
+		infoInfo, err := info.Info()
+		if err != nil {
+			return err
+		}
+		return walkDirFunc(path, LocalDirEntry{fi: NewLocalFileInfo(infoInfo, path)}, err)
 	})
 }

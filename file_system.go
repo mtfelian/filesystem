@@ -20,20 +20,26 @@ type File interface {
 // FilesInfo is a slice of FileInfo
 type FilesInfo []FileInfo
 
-// Names returns a slice of names derived from the receiver slice
-func (fsi FilesInfo) Names() []string {
+// FullNames returns a slice of full names derived from the receiver slice
+func (fsi FilesInfo) FullNames() []string {
 	res := make([]string, len(fsi))
 	for i, el := range fsi {
-		res[i] = el.Name()
+		res[i] = el.FullName()
 	}
 	return res
 }
 
 // FileInfo abstracts file information
-type FileInfo interface{ fs.FileInfo }
+type FileInfo interface {
+	fs.FileInfo
+	FullName() string
+}
 
 // DirEntry abstracts directory walkDirEntry
-type DirEntry interface{ fs.DirEntry }
+type DirEntry interface {
+	fs.DirEntry
+	FullName() string
+}
 
 // WalkDirFunc is a wrapper around fs.WalkDirFunc
 type WalkDirFunc func(string, DirEntry, error) error
