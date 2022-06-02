@@ -44,6 +44,12 @@ type DirEntry interface {
 // WalkDirFunc is a wrapper around fs.WalkDirFunc
 type WalkDirFunc func(string, DirEntry, error) error
 
+// FileNameData represents file name and data
+type FileNameData struct {
+	Name string
+	Data []byte
+}
+
 // FileSystem abstracts a file system
 type FileSystem interface {
 	WithContext(context.Context) FileSystem
@@ -52,6 +58,7 @@ type FileSystem interface {
 	OpenW(string) (File, error)
 	ReadFile(string) ([]byte, error)
 	WriteFile(string, []byte) error
+	WriteFiles([]FileNameData) error
 	Reader(string) (io.ReadCloser, error)
 	Exists(string) (bool, error)
 	MakePathAll(string) error

@@ -939,6 +939,34 @@ var _ = Describe("S3 FileSystem implementation", func() {
 						Expect(fsi).To(HaveLen(amount))
 					})
 				})
+
+				It("checks for large amount of objects as a snowball", func() {
+					const (
+						amount   = 1500
+						largeDir = "/manyfiles/"
+					)
+					nameFunc := func(i int) string { return fmt.Sprintf("%sitem %d", largeDir, i) }
+					contentFunc := func(i int) []byte { return []byte(fmt.Sprintf("content %d", i)) }
+					logger := s3fs.(*filesystem.S3).Logger()
+					logger.Info("creating large S3 directory...")
+					By("creating directory and objects", func() {
+						files := make([]filesystem.FileNameData, amount)
+						for i := 0; i < amount; i++ {
+							if (i+1)%100 == 0 || i == amount-1 {
+								logger.Infof("(snowball) creating test S3 objects... %.2f%%", float64(i+1)*100./float64(amount))
+							}
+							files[i] = filesystem.FileNameData{Name: nameFunc(i), Data: contentFunc(i)}
+						}
+						Expect(s3fs.WriteFiles(files)).To(Succeed())
+					})
+
+					By("reading directory", func() {
+						logger.Info("reading large S3 directory...")
+						fsi, err := s3fs.ReadDir(largeDir)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(fsi).To(HaveLen(amount))
+					})
+				})
 			})
 
 			When("ListDirectoryEntries is true", func() {

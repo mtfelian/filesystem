@@ -50,6 +50,19 @@ func (l *Local) WriteFile(name string, data []byte) error {
 	return os.WriteFile(name, data, 0644)
 }
 
+// WriteFiles by the data given
+func (l *Local) WriteFiles(f []FileNameData) error {
+	for _, el := range f {
+		if err := os.MkdirAll(filepath.Dir(el.Name), 0777); err != nil {
+			return err
+		}
+		if err := os.WriteFile(el.Name, el.Data, 0644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Reader returns io.Reader file abstraction
 func (l *Local) Reader(name string) (io.ReadCloser, error) { return os.Open(name) }
 

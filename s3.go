@@ -323,12 +323,40 @@ func (s *S3) ReadFile(name string) ([]byte, error) {
 // WriteFile by it's name to the client's bucket
 func (s *S3) WriteFile(name string, b []byte) error {
 	name = s.normalizeName(name)
-	if err := s.MakePathAll(path.Dir(name)); err != nil {
-		return err
+	if s.emulateEmptyDirs {
+		if err := s.MakePathAll(path.Dir(name)); err != nil {
+			return err
+		}
 	}
 	_, err := s.minioClient.PutObject(s.ctx, s.bucketName, name, bytes.NewReader(b), int64(len(b)),
 		minio.PutObjectOptions{ContentType: http.DetectContentType(b)})
 	return err
+}
+
+// WriteFiles by the data given. An archive will be created by the underlying minio client
+func (s *S3) WriteFiles(f []FileNameData) error {
+	snowBallC := make(chan minio.SnowballObject)
+	for i, el := range f {
+		f[i].Name = s.normalizeName(el.Name)
+		if s.emulateEmptyDirs {
+			// todo may be optimized if many files have to be written in same subdir structure via a tree
+			if err := s.MakePathAll(path.Dir(el.Name)); err != nil {
+				return err
+			}
+		}
+	}
+	go func() {
+		for i := range f {
+			snowBallC <- minio.SnowballObject{
+				Key:     f[i].Name,
+				Size:    int64(len(f[i].Data)),
+				ModTime: s.now(),
+				Content: bytes.NewReader(f[i].Data),
+			}
+		}
+		close(snowBallC)
+	}()
+	return s.minioClient.PutObjectsSnowball(s.ctx, s.bucketName, minio.SnowballOptions{Compress: true}, snowBallC)
 }
 
 // Reader returns reader by it's name
@@ -401,10 +429,10 @@ func (s *S3) putStubObject(name string) error {
 // we create a small file in it.
 // refer to: https://github.com/minio/minio/issues/3555, https://github.com/minio/minio/issues/2423
 func (s *S3) MakePathAll(name string) error {
-	name = s.normalizeName(name)
 	if !s.emulateEmptyDirs { // if no empty dirs allowed just do nothing
 		return nil
 	}
+	name = s.normalizeName(name)
 
 	for ; name != "/"; name = path.Dir(name) {
 		if err := s.putStubObject(name); err != nil {
