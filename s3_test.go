@@ -150,11 +150,11 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			var (
 				openedFilesList *filesystem.S3OpenedFilesList
 				f               filesystem.File
-				closed          bool
+				opened          bool
 			)
 
 			JustAfterEach(func() {
-				if !closed {
+				if opened {
 					Expect(f.Close()).To(Succeed())
 				}
 			})
@@ -178,12 +178,33 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				return exists
 			}
 
+			It("checks opening not-existing file and it not hangs on second attempt (were a bug)", func() {
+				By("opening not existing object 1st time", func() {
+					f, err = s3fs.Open(noSuchKey)
+					Expect(err).To(HaveOccurred())
+					Expect(f).To(BeNil())
+
+					openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
+					Expect(openedFilesList).NotTo(BeNil())
+					Expect(openedFilesList.Len()).To(BeZero())
+				})
+				By("opening not existing object 2nd time", func() {
+					f, err = s3fs.Open(noSuchKey)
+					Expect(err).To(HaveOccurred())
+					Expect(f).To(BeNil())
+
+					openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
+					Expect(openedFilesList).NotTo(BeNil())
+					Expect(openedFilesList.Len()).To(BeZero())
+				})
+			})
+
 			Context("Opening file for reading", func() {
 				JustBeforeEach(func() {
 					f, err = s3fs.Open(key1)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(f).NotTo(BeNil())
-					closed = false
+					opened = true
 
 					openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
 					Expect(openedFilesList).NotTo(BeNil())
@@ -197,7 +218,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					name := s3FileEntry.S3File.LocalName()
 					Expect(name).To(Equal(s3fs.(*filesystem.S3).TempFileName(key1)))
 					Expect(s3FileEntry.S3File.Close()).To(Succeed())
-					closed = true
+					opened = false
 
 					By("checking that file was removed at Close call", func() {
 						Expect(isExists(name)).To(BeFalse())
@@ -209,7 +230,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					Eventually(func() bool {
 						return isExists(s3FileEntry.S3File.LocalName())
 					}, 3*ttl, ttl/2).Should(BeFalse()) // to give slightly more time to the cleaner goroutine
-					closed = true
+					opened = false
 
 					err := s3FileEntry.S3File.Close()
 					Expect(err).To(HaveOccurred())
@@ -243,7 +264,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					f, err = s3fs.Create(key1)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(f).NotTo(BeNil())
-					closed = false
+					opened = true
 
 					openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
 					Expect(openedFilesList).NotTo(BeNil())
@@ -257,7 +278,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					name := s3FileEntry.S3File.LocalName()
 					Expect(name).To(Equal(s3fs.(*filesystem.S3).TempFileName(key1)))
 					Expect(s3FileEntry.S3File.Close()).To(Succeed())
-					closed = true
+					opened = false
 
 					By("checking that file was removed at Close call", func() {
 						Expect(isExists(name)).To(BeFalse())
@@ -270,7 +291,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 						return isExists(s3FileEntry.S3File.LocalName())
 					}, 3*ttl, ttl/2).Should(BeFalse()) // to give slightly more time to the cleaner goroutine
 
-					closed = true
+					opened = false
 					err := s3FileEntry.S3File.Close()
 					Expect(err).To(HaveOccurred())
 					Expect(err.Error()).To(ContainSubstring(fs.ErrClosed.Error()))
@@ -301,7 +322,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					})
 				})
 
-				It("checks that an object will be created from written file after it will be closed", func() {
+				It("checks that an object will be created from written file after it will be opened", func() {
 					content := "123 123"
 					By("writing into file", func() {
 						n, err := f.Write([]byte(content))
@@ -309,7 +330,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 						Expect(n).To(Equal(len(content)))
 					})
 					Expect(f.Close()).To(Succeed())
-					closed = true
+					opened = false
 
 					By("reading from object", func() {
 						b, err := s3fs.ReadFile(key1)
@@ -324,7 +345,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					f, err = s3fs.OpenW(key1)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(f).NotTo(BeNil())
-					closed = false
+					opened = true
 
 					openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
 					Expect(openedFilesList).NotTo(BeNil())
@@ -338,7 +359,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					name := s3FileEntry.S3File.LocalName()
 					Expect(name).To(Equal(s3fs.(*filesystem.S3).TempFileName(key1)))
 					Expect(s3FileEntry.S3File.Close()).To(Succeed())
-					closed = true
+					opened = false
 
 					By("checking that file was removed at Close call", func() {
 						Expect(isExists(name)).To(BeFalse())
@@ -350,7 +371,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					Eventually(func() bool {
 						return isExists(s3FileEntry.S3File.LocalName())
 					}, 3*ttl, ttl/2).Should(BeFalse()) // to give slightly more time to the cleaner goroutine
-					closed = true
+					opened = false
 
 					err := s3FileEntry.S3File.Close()
 					Expect(err).To(HaveOccurred())
@@ -365,7 +386,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 						Expect(n).To(Equal(len(content)))
 					})
 					Expect(f.Close()).To(Succeed())
-					closed = true
+					opened = false
 
 					b, err := s3fs.ReadFile(key1)
 					Expect(err).NotTo(HaveOccurred())
@@ -389,7 +410,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					f, err = s3fs.Open(key1)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(f).NotTo(BeNil())
-					closed = false
+					opened = true
 
 					openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
 					Expect(openedFilesList).NotTo(BeNil())
@@ -433,7 +454,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 						Eventually(func() bool {
 							return isExists(s3FileEntry.S3File.LocalName())
 						}, 3*ttl, ttl/2).Should(BeFalse()) // to give slightly more time to the cleaner goroutine
-						closed = true
+						opened = false
 					})
 
 					By("checking that opened file is no more on the list", func() {

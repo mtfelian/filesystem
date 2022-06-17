@@ -217,8 +217,7 @@ func (s *S3) openFile(name string, fileMode int) (File, error) {
 		return nil, ErrUnknownFileMode
 	}
 	var err error
-	name = s.normalizeName(name)
-	if s.nameIsADirectory(name) {
+	if name = s.normalizeName(name); s.nameIsADirectory(name) {
 		return nil, ErrCantOpenS3Directory
 	}
 
@@ -248,24 +247,35 @@ func (s *S3) openFile(name string, fileMode int) (File, error) {
 	}
 	s.openedFilesList.AddAndLockEntry(localFileName, s3OpenedFile)
 
+	var f File
+	defer func() {
+		if err == nil {
+			return
+		}
+		s.openedFilesList.DeleteAndUnlockEntry(localFileName)
+		if f != nil {
+			_ = f.Close()
+		}
+	}()
+
 	if fileMode != fileModeCreate { // fileModeOpen or fileModeWrite, so we create local file from S3 object
-		object, err := s.minioClient.GetObject(s.ctx, s.bucketName, name, minio.GetObjectOptions{})
-		if err != nil {
+		var object *minio.Object
+		if object, err = s.minioClient.GetObject(s.ctx, s.bucketName, name, minio.GetObjectOptions{}); err != nil {
 			return nil, err
 		}
-		localFile, err := s.openedFilesLocalFS.Create(localFileName)
-		if err != nil {
-			return nil, err
-		}
-		if _, err = io.Copy(localFile, object); err != nil {
-			return nil, err
-		}
-		if err := localFile.Close(); err != nil {
+		if err = func() error {
+			localFile, err := s.openedFilesLocalFS.Create(localFileName)
+			if err != nil {
+				return err
+			}
+			defer localFile.Close()
+			_, err = io.Copy(localFile, object)
+			return err
+		}(); err != nil {
 			return nil, err
 		}
 	}
 
-	var f File
 	switch fileMode {
 	case fileModeOpen:
 		f, err = s.openedFilesLocalFS.Open(localFileName)
