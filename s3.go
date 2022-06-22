@@ -302,8 +302,10 @@ func (s *S3) Open(name string) (File, error) { return s.openFile(name, fileModeO
 // it should be properly closed by calling Close() on the caller's side.
 // Calls to Open, Create, OpenW and S3OpenedFile.Close are concurrent-safe and mutually locking.
 func (s *S3) Create(name string) (File, error) {
-	if err := s.MakePathAll(path.Dir(name)); err != nil {
-		return nil, err
+	if dir := path.Dir(name); dir != "." && dir != "/" {
+		if err := s.MakePathAll(dir); err != nil {
+			return nil, err
+		}
 	}
 	return s.openFile(name, fileModeCreate)
 }
@@ -314,8 +316,10 @@ func (s *S3) Create(name string) (File, error) {
 // it should be properly closed by calling Close() on the caller's side.
 // Calls to Open, Create, OpenW and S3OpenedFile.Close are concurrent-safe and mutually locking.
 func (s *S3) OpenW(name string) (File, error) {
-	if err := s.MakePathAll(path.Dir(name)); err != nil {
-		return nil, err
+	if dir := path.Dir(name); dir != "." && dir != "/" {
+		if err := s.MakePathAll(dir); err != nil {
+			return nil, err
+		}
 	}
 	return s.openFile(name, fileModeWrite)
 }
@@ -334,8 +338,10 @@ func (s *S3) ReadFile(name string) ([]byte, error) {
 func (s *S3) WriteFile(name string, b []byte) error {
 	name = s.normalizeName(name)
 	if s.emulateEmptyDirs {
-		if err := s.MakePathAll(path.Dir(name)); err != nil {
-			return err
+		if dir := path.Dir(name); dir != "." && dir != "/" {
+			if err := s.MakePathAll(dir); err != nil {
+				return err
+			}
 		}
 	}
 	_, err := s.minioClient.PutObject(s.ctx, s.bucketName, name, bytes.NewReader(b), int64(len(b)),
@@ -350,8 +356,10 @@ func (s *S3) WriteFiles(f []FileNameData) error {
 		f[i].Name = s.normalizeName(el.Name)
 		if s.emulateEmptyDirs {
 			// todo may be optimized if many files have to be written in same subdir structure via a tree
-			if err := s.MakePathAll(path.Dir(el.Name)); err != nil {
-				return err
+			if dir := path.Dir(el.Name); dir != "." && dir != "/" {
+				if err := s.MakePathAll(dir); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -567,8 +575,10 @@ func (s *S3) Rename(from string, to string) error {
 	}
 
 	if !s.nameIsADirectory(from) { // normal object
-		if err := s.MakePathAll(path.Dir(to)); err != nil {
-			return err
+		if dir := path.Dir(to); dir != "." && dir != "/" {
+			if err := s.MakePathAll(dir); err != nil {
+				return err
+			}
 		}
 		if _, err := s.minioClient.CopyObject(s.ctx,
 			minio.CopyDestOptions{Bucket: s.bucketName, Object: to},
@@ -598,8 +608,10 @@ func (s *S3) Rename(from string, to string) error {
 		Recursive: true,
 	}) {
 		objTo := to + strings.TrimPrefix("/"+objectInfo.Key, from)
-		if err := s.MakePathAll(path.Dir(objTo)); err != nil {
-			return err
+		if dir := path.Dir(objTo); dir != "." && dir != "/" {
+			if err := s.MakePathAll(dir); err != nil {
+				return err
+			}
 		}
 
 		if _, err := s.minioClient.CopyObject(s.ctx,

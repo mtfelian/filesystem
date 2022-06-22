@@ -81,16 +81,17 @@ var _ = Describe("S3 FileSystem implementation", func() {
 	})
 
 	const (
-		dir0      = "/a/"
-		dir1      = dir0 + "b/"
-		dir2      = dir1 + "c_d/"
-		key1      = dir2 + "1.txt"
-		key2      = dir2 + "2.txt"
-		key3      = dir0 + "3.txt"
-		noSuchKey = "/b/c/d/nofile.txt"
-		content1  = "content 1"
-		content2  = "content 2"
-		content3  = "content 3"
+		dir0       = "/a/"
+		dir1       = dir0 + "b/"
+		dir2       = dir1 + "c_d/"
+		key1       = dir2 + "1.txt"
+		key2       = dir2 + "2.txt"
+		key3       = dir0 + "3.txt"
+		noSuchKey  = "/b/c/d/nofile.txt"
+		invalidKey = `C:\1\2\3.txt`
+		content1   = "content 1"
+		content2   = "content 2"
+		content3   = "content 3"
 	)
 	keyToContent := map[string][]byte{
 		key1: []byte(content1),
@@ -156,6 +157,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			JustAfterEach(func() {
 				if opened {
 					Expect(f.Close()).To(Succeed())
+					opened = false
 				}
 			})
 
@@ -256,6 +258,19 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					n, err := f.Write([]byte("123"))
 					Expect(err).To(HaveOccurred())
 					Expect(n).To(BeZero())
+				})
+			})
+
+			Context("operations with invalid (Windows) file names", func() {
+				It("checks that Create works", func() {
+					f1, err := s3fs.Create(invalidKey)
+					Expect(err).NotTo(HaveOccurred()) // name will be converted to normal name
+					Expect(f1).NotTo(BeNil())
+					Expect(f1.Name()).To(Equal("/1/2/3.txt"))
+					defer func() {
+						Expect(f1.Close()).To(Succeed())
+						Expect(s3fs.Remove(invalidKey)).To(Succeed())
+					}()
 				})
 			})
 
