@@ -545,6 +545,80 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			})
 		})
 
+		Describe("RemoveFiles", func() {
+			It("checks batch removing all existing objects", func() {
+				Expect(s3fs.RemoveFiles([]string{key2, key3, key1})).To(Succeed())
+				By("checking that removed objects no more exists", func() {
+					exists, err := s3fs.Exists(key1)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(exists).To(BeFalse())
+
+					exists, err = s3fs.Exists(key2)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(exists).To(BeFalse())
+
+					exists, err = s3fs.Exists(key3)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(exists).To(BeFalse())
+				})
+			})
+
+			It("checks batch removing mix of existing and not existing objects", func() {
+				Expect(s3fs.RemoveFiles([]string{key2, noSuchKey})).To(Succeed())
+				By("checking that removed objects no more exists", func() {
+					exists, err := s3fs.Exists(key1)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(exists).To(BeTrue())
+
+					exists, err = s3fs.Exists(key2)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(exists).To(BeFalse())
+
+					exists, err = s3fs.Exists(key3)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(exists).To(BeTrue())
+				})
+			})
+
+			Context("non-empty dir", func() {
+				It("checks batch removing a non-empty directory path with '/', should not succeed, "+
+					"nothing should be removed", func() {
+					Expect(s3fs.RemoveFiles([]string{key3, dir2})).NotTo(Succeed())
+					By("checking folder path existence", func() {
+						exists, err := s3fs.Exists(dir2)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(exists).To(BeTrue())
+					})
+					By("checking object existence", func() {
+						exists, err := s3fs.Exists(key3)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(exists).To(BeTrue())
+					})
+				})
+
+				It("checks batch removing a non-empty directory path with no '/', "+
+					"it should be nothing, like non-existent file removal, "+
+					"but other objects should be removed", func() {
+					dir := strings.TrimSuffix(dir2, "/")
+					Expect(s3fs.RemoveFiles([]string{key3, dir})).To(Succeed())
+					By("checking folder path existence", func() {
+						exists, err := s3fs.Exists(dir2) // as a directory path
+						Expect(err).NotTo(HaveOccurred())
+						Expect(exists).To(BeTrue())
+					})
+					By("checking objects existence", func() {
+						exists, err := s3fs.Exists(key2)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(exists).To(BeTrue())
+
+						exists, err = s3fs.Exists(key3)
+						Expect(err).NotTo(HaveOccurred())
+						Expect(exists).To(BeFalse())
+					})
+				})
+			})
+		})
+
 		Describe("Remove, should be applied to objects or empty folders", func() {
 			It("checks removing existing object", func() {
 				Expect(s3fs.Remove(key2)).To(Succeed())

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -483,6 +484,52 @@ func (s *S3) Remove(name string) error {
 	}
 
 	return s.minioClient.RemoveObject(s.ctx, s.bucketName, s.nameToStub(name), minio.RemoveObjectOptions{})
+}
+
+// BatchRemove object by given names. Returns no error even if object does not exists
+func (s *S3) RemoveFiles(names []string) error {
+	objectInfoC := make(chan minio.ObjectInfo)
+	idx := make([]int, 0, len(names))
+	for i := range names {
+		names[i] = s.normalizeName(names[i])
+		names[i] = s.stubToDir(names[i]) // if stub, convert to dir with trailing '/'
+
+		if !s.nameIsADirectoryPath(names[i]) { // means was not a stub but a normal object name
+			idx = append(idx, i)
+			continue
+		}
+		// if nameIsADirectoryPath
+
+		isEmpty, err := s.IsEmptyPath(names[i])
+		if err != nil {
+			return err
+		}
+		if !isEmpty {
+			return ErrDirectoryNotEmpty
+		}
+		// if nameIsADirectoryPath && isEmpty
+
+		if !s.emulateEmptyDirs {
+			continue
+		}
+		idx = append(idx, i)
+	}
+
+	go func() {
+		defer close(objectInfoC)
+		for _, i := range idx {
+			objectInfoC <- minio.ObjectInfo{Key: names[i]}
+		}
+	}()
+
+	objectRemoveErrorC := s.minioClient.RemoveObjects(s.ctx, s.bucketName, objectInfoC, minio.RemoveObjectsOptions{})
+	select {
+	case ore, more := <-objectRemoveErrorC: // if no error, more will be false
+		if more && ore.Err != nil {
+			return fmt.Errorf("%w at object %s", ore.Err, ore.ObjectName)
+		}
+	}
+	return nil
 }
 
 // RemoveAll objects by the given filepath

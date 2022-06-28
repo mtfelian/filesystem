@@ -63,6 +63,7 @@ type FileSystem interface {
 	Exists(string) (bool, error)
 	MakePathAll(string) error
 	Remove(string) error
+	RemoveFiles([]string) error
 	RemoveAll(string) error
 	IsNotExist(error) bool
 	IsEmptyPath(string) (bool, error)

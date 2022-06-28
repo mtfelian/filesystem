@@ -85,6 +85,16 @@ func (l *Local) MakePathAll(name string) error { return os.MkdirAll(name, 0777) 
 // Remove file
 func (l *Local) Remove(name string) error { return os.Remove(name) }
 
+// BatchRemove files given
+func (l *Local) RemoveFiles(names []string) error {
+	for _, name := range names {
+		if err := l.Remove(name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // RemoveAll removes the entire name
 func (l *Local) RemoveAll(name string) error { return os.RemoveAll(name) }
 
