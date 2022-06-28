@@ -486,7 +486,8 @@ func (s *S3) Remove(name string) error {
 	return s.minioClient.RemoveObject(s.ctx, s.bucketName, s.nameToStub(name), minio.RemoveObjectOptions{})
 }
 
-// BatchRemove object by given names. Returns no error even if object does not exists
+// RemoveFiles removes multiple objects in batch by the given names.
+// Returns no error even if any object does not exists
 func (s *S3) RemoveFiles(names []string) error {
 	objectInfoC := make(chan minio.ObjectInfo)
 	idx := make([]int, 0, len(names))
