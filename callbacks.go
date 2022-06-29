@@ -6,7 +6,7 @@ import (
 )
 
 // cbFunc is callback func type
-type cbFunc func(context.Context) error
+type cbFunc func(context.Context) (context.Context, error)
 
 // callbacks
 var (
@@ -43,10 +43,10 @@ func SetAfterOperationCB(f cbFunc) {
 	afterOperationCB = f
 }
 
-func invokeBeforeOperationCB(ctx context.Context) error {
+func invokeBeforeOperationCB(ctx context.Context) (context.Context, error) {
 	cb := BeforeOperationCB()
 	if cb == nil {
-		return nil
+		return ctx, nil
 	}
 	return cb(ctx)
 }
@@ -56,5 +56,6 @@ func invokeAfterOperationCB(ctx context.Context) error {
 	if cb == nil {
 		return nil
 	}
-	return cb(ctx)
+	_, err := cb(ctx)
+	return err
 }

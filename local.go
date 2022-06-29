@@ -19,7 +19,7 @@ func NewLocal() FileSystem { return &Local{} }
 
 // Open file in the FileSystem
 func (l *Local) Open(ctx context.Context, name string) (f File, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -33,7 +33,7 @@ func (l *Local) Open(ctx context.Context, name string) (f File, err error) {
 
 // Create file in the FileSystem
 func (l *Local) Create(ctx context.Context, name string) (f File, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -50,7 +50,7 @@ func (l *Local) Create(ctx context.Context, name string) (f File, err error) {
 
 // OpenW opens file in the FileSystem for writing
 func (l *Local) OpenW(ctx context.Context, name string) (f File, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -67,7 +67,7 @@ func (l *Local) OpenW(ctx context.Context, name string) (f File, err error) {
 
 // ReadFile by name
 func (l *Local) ReadFile(ctx context.Context, name string) (b []byte, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -81,7 +81,7 @@ func (l *Local) ReadFile(ctx context.Context, name string) (b []byte, err error)
 
 // WriteFile by name
 func (l *Local) WriteFile(ctx context.Context, name string, data []byte) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -98,7 +98,7 @@ func (l *Local) WriteFile(ctx context.Context, name string, data []byte) (err er
 
 // WriteFiles by the data given
 func (l *Local) WriteFiles(ctx context.Context, f []FileNameData) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -120,7 +120,7 @@ func (l *Local) WriteFiles(ctx context.Context, f []FileNameData) (err error) {
 
 // Reader returns io.Reader file abstraction
 func (l *Local) Reader(ctx context.Context, name string) (r io.ReadCloser, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -134,7 +134,7 @@ func (l *Local) Reader(ctx context.Context, name string) (r io.ReadCloser, err e
 
 // Exists returns whether file exists or not
 func (l *Local) Exists(ctx context.Context, name string) (e bool, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -156,7 +156,7 @@ func (l *Local) Exists(ctx context.Context, name string) (e bool, err error) {
 
 // MakePathAll makes name recursively
 func (l *Local) MakePathAll(ctx context.Context, name string) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -170,7 +170,7 @@ func (l *Local) MakePathAll(ctx context.Context, name string) (err error) {
 
 // Remove file
 func (l *Local) Remove(ctx context.Context, name string) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -184,7 +184,7 @@ func (l *Local) Remove(ctx context.Context, name string) (err error) {
 
 // RemoveFiles files given
 func (l *Local) RemoveFiles(ctx context.Context, names []string) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -203,7 +203,7 @@ func (l *Local) RemoveFiles(ctx context.Context, names []string) (err error) {
 
 // RemoveAll removes the entire name
 func (l *Local) RemoveAll(ctx context.Context, name string) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -217,7 +217,7 @@ func (l *Local) RemoveAll(ctx context.Context, name string) (err error) {
 
 // IsEmptyPath returns whether given name is empty (does not contain any subpaths)
 func (l *Local) IsEmptyPath(ctx context.Context, name string) (e bool, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -234,7 +234,7 @@ func (l *Local) IsNotExist(err error) bool { return os.IsNotExist(err) }
 
 // PreparePath constructs an absolute name from. If it does not exists, creates it.
 func (l *Local) PreparePath(ctx context.Context, name string) (absolutePath string, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -259,7 +259,7 @@ func (l *Local) PreparePath(ctx context.Context, name string) (absolutePath stri
 
 // Rename file
 func (l *Local) Rename(ctx context.Context, from, to string) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -276,7 +276,7 @@ func (l *Local) Rename(ctx context.Context, from, to string) (err error) {
 
 // Stat returns a FileInfo describing the named file
 func (l *Local) Stat(ctx context.Context, name string) (fi FileInfo, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -294,7 +294,7 @@ func (l *Local) Stat(ctx context.Context, name string) (fi FileInfo, err error) 
 
 // ReadDir with the name given
 func (l *Local) ReadDir(ctx context.Context, name string) (fi FilesInfo, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -316,7 +316,7 @@ func (l *Local) ReadDir(ctx context.Context, name string) (fi FilesInfo, err err
 
 // WalkDir traverses the filesystem from the given directory
 func (l *Local) WalkDir(ctx context.Context, root string, walkDirFunc WalkDirFunc) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {

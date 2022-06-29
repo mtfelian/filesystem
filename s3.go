@@ -64,7 +64,7 @@ type S3 struct {
 
 // NewS3 returns a pointer to a new Local object
 func NewS3(ctx context.Context, p S3Params) (s3 *S3, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -215,7 +215,7 @@ const (
 )
 
 func (s *S3) openFile(ctx context.Context, name string, fileMode int) (f File, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -305,7 +305,7 @@ func (s *S3) openFile(ctx context.Context, name string, fileMode int) (f File, e
 // it should be properly closed by calling Close() on the caller's side.
 // Calls to Open, Create, OpenW and S3OpenedFile.Close are concurrent-safe and mutually locking.
 func (s *S3) Open(ctx context.Context, name string) (f File, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -323,7 +323,7 @@ func (s *S3) Open(ctx context.Context, name string) (f File, err error) {
 // it should be properly closed by calling Close() on the caller's side.
 // Calls to Open, Create, OpenW and S3OpenedFile.Close are concurrent-safe and mutually locking.
 func (s *S3) Create(ctx context.Context, name string) (f File, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -346,7 +346,7 @@ func (s *S3) Create(ctx context.Context, name string) (f File, err error) {
 // it should be properly closed by calling Close() on the caller's side.
 // Calls to Open, Create, OpenW and S3OpenedFile.Close are concurrent-safe and mutually locking.
 func (s *S3) OpenW(ctx context.Context, name string) (f File, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -365,7 +365,7 @@ func (s *S3) OpenW(ctx context.Context, name string) (f File, err error) {
 
 // ReadFile by it's name from the client's bucket
 func (s *S3) ReadFile(ctx context.Context, name string) (b []byte, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -384,7 +384,7 @@ func (s *S3) ReadFile(ctx context.Context, name string) (b []byte, err error) {
 
 // WriteFile by it's name to the client's bucket
 func (s *S3) WriteFile(ctx context.Context, name string, b []byte) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -408,7 +408,7 @@ func (s *S3) WriteFile(ctx context.Context, name string, b []byte) (err error) {
 
 // WriteFiles by the data given. An archive will be created by the underlying minio client
 func (s *S3) WriteFiles(ctx context.Context, f []FileNameData) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -445,7 +445,7 @@ func (s *S3) WriteFiles(ctx context.Context, f []FileNameData) (err error) {
 
 // Reader returns reader by it's name
 func (s *S3) Reader(ctx context.Context, name string) (r io.ReadCloser, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -461,7 +461,7 @@ func (s *S3) Reader(ctx context.Context, name string) (r io.ReadCloser, err erro
 // Count returns count of items in a folder. May count in childs also if recursive param set to true.
 func (s *S3) Count(ctx context.Context, name string, recursive bool,
 	countFunc func(oi minio.ObjectInfo, num int64) (proceed bool, e error)) (c int64, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -497,7 +497,7 @@ func (s *S3) Count(ctx context.Context, name string, recursive bool,
 
 // Exists checks whether an object exists
 func (s *S3) Exists(ctx context.Context, name string) (e bool, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -528,7 +528,7 @@ func (s *S3) Exists(ctx context.Context, name string) (e bool, err error) {
 }
 
 func (s *S3) putStubObject(ctx context.Context, name string) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -554,7 +554,7 @@ func (s *S3) MakePathAll(ctx context.Context, name string) (err error) {
 		return
 	}
 
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -575,7 +575,7 @@ func (s *S3) MakePathAll(ctx context.Context, name string) (err error) {
 
 // Remove object by the given name. Returns no error even if object does not exists
 func (s *S3) Remove(ctx context.Context, name string) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -610,7 +610,7 @@ func (s *S3) Remove(ctx context.Context, name string) (err error) {
 // RemoveFiles removes multiple objects in batch by the given names.
 // Returns no error even if any object does not exists
 func (s *S3) RemoveFiles(ctx context.Context, names []string) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -665,7 +665,7 @@ func (s *S3) RemoveFiles(ctx context.Context, names []string) (err error) {
 
 // RemoveAll objects by the given filepath
 func (s *S3) RemoveAll(ctx context.Context, name string) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -709,7 +709,7 @@ func (s *S3) IsNotExist(err error) bool {
 // IsEmptyPath works according to the MakePathAll implementation.
 // Returns true only if specified path contains only a dir stub file.
 func (s *S3) IsEmptyPath(ctx context.Context, name string) (e bool, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -750,7 +750,7 @@ func (s *S3) IsEmptyPath(ctx context.Context, name string) (e bool, err error) {
 
 // PreparePath works according to the MakePathAll implementation.
 func (s *S3) PreparePath(ctx context.Context, name string) (_ string, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -771,7 +771,7 @@ func (s *S3) PreparePath(ctx context.Context, name string) (_ string, err error)
 
 // Rename object
 func (s *S3) Rename(ctx context.Context, from string, to string) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -843,7 +843,7 @@ func (s *S3) Rename(ctx context.Context, from string, to string) (err error) {
 
 // Stat returns S3 object information as FileInfo interface
 func (s *S3) Stat(ctx context.Context, name string) (fi FileInfo, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -886,7 +886,7 @@ func (s *S3) Stat(ctx context.Context, name string) (fi FileInfo, err error) {
 
 // ReadDir simulates directory reading by the given name
 func (s *S3) ReadDir(ctx context.Context, name string) (fi FilesInfo, err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
@@ -1000,7 +1000,7 @@ func (s *S3) walkDir(ctx context.Context, name string, d DirEntry, walkDirFunc W
 
 // WalkDir simulates traversing the filesystem from the given directory
 func (s *S3) WalkDir(ctx context.Context, name string, walkDirFunc WalkDirFunc) (err error) {
-	if err = invokeBeforeOperationCB(ctx); err != nil {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
 	defer func() {
