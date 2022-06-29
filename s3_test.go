@@ -74,12 +74,12 @@ var _ = Describe("S3 FileSystem implementation", func() {
 		filesystem.SetBeforeOperationCB(func(ctx context.Context) (context.Context, error) {
 			return context.WithValue(ctx, ctxKey, ctxValue), nil
 		})
-		filesystem.SetAfterOperationCB(func(ctx context.Context) (context.Context, error) {
+		filesystem.SetAfterOperationCB(func(ctx context.Context) error {
 			if ctx == nil {
-				return ctx, nil
+				return nil
 			}
 			Expect(ctx.Value(ctxKey).(string)).To(Equal(ctxValue))
-			return ctx, nil
+			return nil
 		})
 	})
 
