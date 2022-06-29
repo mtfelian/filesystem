@@ -67,6 +67,20 @@ var _ = Describe("S3 FileSystem implementation", func() {
 
 		fsLocal = filesystem.NewLocal()
 		ctx = context.Background()
+		const (
+			ctxKey   = "key"
+			ctxValue = "value"
+		)
+		filesystem.SetBeforeOperationCB(func(ctx context.Context) (context.Context, error) {
+			return context.WithValue(ctx, ctxKey, ctxValue), nil
+		})
+		filesystem.SetAfterOperationCB(func(ctx context.Context) (context.Context, error) {
+			if ctx == nil {
+				return ctx, nil
+			}
+			Expect(ctx.Value(ctxKey).(string)).To(Equal(ctxValue))
+			return ctx, nil
+		})
 	})
 
 	AfterEach(func() {
