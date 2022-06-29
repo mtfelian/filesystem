@@ -64,6 +64,15 @@ type S3 struct {
 
 // NewS3 returns a pointer to a new Local object
 func NewS3(ctx context.Context, p S3Params) (s3 *S3, err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	p.applyDefaults()
 	s3 = &S3{
 		endpoint:   p.Endpoint,
@@ -102,7 +111,7 @@ func NewS3(ctx context.Context, p S3Params) (s3 *S3, err error) {
 		})
 	}
 	if s3.emulateEmptyDirs {
-		if err := s3.putStubObject(ctx, ""); err != nil {
+		if err = s3.putStubObject(ctx, ""); err != nil {
 			return s3, err
 		}
 	}
@@ -205,11 +214,19 @@ const (
 	fileModeWrite
 )
 
-func (s *S3) openFile(ctx context.Context, name string, fileMode int) (File, error) {
+func (s *S3) openFile(ctx context.Context, name string, fileMode int) (f File, err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	if fileMode > fileModeWrite || fileMode < fileModeOpen {
 		return nil, ErrUnknownFileMode
 	}
-	var err error
 	if name = s.normalizeName(name); s.nameIsADirectory(name) {
 		return nil, ErrCantOpenS3Directory
 	}
@@ -223,7 +240,7 @@ func (s *S3) openFile(ctx context.Context, name string, fileMode int) (File, err
 		s3OpenedFile, _ = s.openedFilesList.Map()[localFileName]
 	}()
 
-	if err := s.openedFilesLocalFS.MakePathAll(ctx, filepath.Dir(localFileName)); err != nil {
+	if err = s.openedFilesLocalFS.MakePathAll(ctx, filepath.Dir(localFileName)); err != nil {
 		return nil, err
 	}
 
@@ -241,7 +258,6 @@ func (s *S3) openFile(ctx context.Context, name string, fileMode int) (File, err
 	}
 	s.openedFilesList.AddAndLockEntry(localFileName, s3OpenedFile)
 
-	var f File
 	defer func() {
 		if err == nil {
 			return
@@ -288,7 +304,16 @@ func (s *S3) openFile(ctx context.Context, name string, fileMode int) (File, err
 // To remove the actual local file and write out into S3 object
 // it should be properly closed by calling Close() on the caller's side.
 // Calls to Open, Create, OpenW and S3OpenedFile.Close are concurrent-safe and mutually locking.
-func (s *S3) Open(ctx context.Context, name string) (File, error) {
+func (s *S3) Open(ctx context.Context, name string) (f File, err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	return s.openFile(ctx, name, fileModeOpen)
 }
 
@@ -297,10 +322,19 @@ func (s *S3) Open(ctx context.Context, name string) (File, error) {
 // To remove the actual local file and write out into S3 object
 // it should be properly closed by calling Close() on the caller's side.
 // Calls to Open, Create, OpenW and S3OpenedFile.Close are concurrent-safe and mutually locking.
-func (s *S3) Create(ctx context.Context, name string) (File, error) {
+func (s *S3) Create(ctx context.Context, name string) (f File, err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	if dir := path.Dir(name); dir != "." && dir != "/" {
-		if err := s.MakePathAll(ctx, dir); err != nil {
-			return nil, err
+		if err = s.MakePathAll(ctx, dir); err != nil {
+			return
 		}
 	}
 	return s.openFile(ctx, name, fileModeCreate)
@@ -311,50 +345,86 @@ func (s *S3) Create(ctx context.Context, name string) (File, error) {
 // To remove the actual local file and write out into S3 object
 // it should be properly closed by calling Close() on the caller's side.
 // Calls to Open, Create, OpenW and S3OpenedFile.Close are concurrent-safe and mutually locking.
-func (s *S3) OpenW(ctx context.Context, name string) (File, error) {
+func (s *S3) OpenW(ctx context.Context, name string) (f File, err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	if dir := path.Dir(name); dir != "." && dir != "/" {
-		if err := s.MakePathAll(ctx, dir); err != nil {
-			return nil, err
+		if err = s.MakePathAll(ctx, dir); err != nil {
+			return
 		}
 	}
 	return s.openFile(ctx, name, fileModeWrite)
 }
 
 // ReadFile by it's name from the client's bucket
-func (s *S3) ReadFile(ctx context.Context, name string) ([]byte, error) {
+func (s *S3) ReadFile(ctx context.Context, name string) (b []byte, err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	name = s.normalizeName(name)
-	o, err := s.minioClient.GetObject(ctx, s.bucketName, name, minio.GetObjectOptions{})
-	if err != nil {
-		return nil, err
+	var o *minio.Object
+	if o, err = s.minioClient.GetObject(ctx, s.bucketName, name, minio.GetObjectOptions{}); err != nil {
+		return
 	}
 	return io.ReadAll(o)
 }
 
 // WriteFile by it's name to the client's bucket
-func (s *S3) WriteFile(ctx context.Context, name string, b []byte) error {
+func (s *S3) WriteFile(ctx context.Context, name string, b []byte) (err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	name = s.normalizeName(name)
 	if s.emulateEmptyDirs {
 		if dir := path.Dir(name); dir != "." && dir != "/" {
-			if err := s.MakePathAll(ctx, dir); err != nil {
-				return err
+			if err = s.MakePathAll(ctx, dir); err != nil {
+				return
 			}
 		}
 	}
-	_, err := s.minioClient.PutObject(ctx, s.bucketName, name, bytes.NewReader(b), int64(len(b)),
+	_, err = s.minioClient.PutObject(ctx, s.bucketName, name, bytes.NewReader(b), int64(len(b)),
 		minio.PutObjectOptions{ContentType: http.DetectContentType(b)})
 	return err
 }
 
 // WriteFiles by the data given. An archive will be created by the underlying minio client
-func (s *S3) WriteFiles(ctx context.Context, f []FileNameData) error {
+func (s *S3) WriteFiles(ctx context.Context, f []FileNameData) (err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	snowBallC := make(chan minio.SnowballObject)
 	for i, el := range f {
 		f[i].Name = s.normalizeName(el.Name)
 		if s.emulateEmptyDirs {
 			// todo may be optimized if many files have to be written in same subdir structure via a tree
 			if dir := path.Dir(el.Name); dir != "." && dir != "/" {
-				if err := s.MakePathAll(ctx, dir); err != nil {
-					return err
+				if err = s.MakePathAll(ctx, dir); err != nil {
+					return
 				}
 			}
 		}
@@ -374,18 +444,36 @@ func (s *S3) WriteFiles(ctx context.Context, f []FileNameData) error {
 }
 
 // Reader returns reader by it's name
-func (s *S3) Reader(ctx context.Context, name string) (io.ReadCloser, error) {
+func (s *S3) Reader(ctx context.Context, name string) (r io.ReadCloser, err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	name = s.normalizeName(name)
 	return s.minioClient.GetObject(ctx, s.bucketName, name, minio.GetObjectOptions{})
 }
 
 // Count returns count of items in a folder. May count in childs also if recursive param set to true.
-func (s *S3) Count(ctx context.Context, name string, recursive bool, countFunc func(oi minio.ObjectInfo, num int64) (proceed bool, e error),
-) (int64, error) {
+func (s *S3) Count(ctx context.Context, name string, recursive bool,
+	countFunc func(oi minio.ObjectInfo, num int64) (proceed bool, e error)) (c int64, err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	name = s.normalizeName(name)
-	ctx, cancel := context.WithCancel(ctx)
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
 	defer cancel()
-	var c int64
 	for objectInfo := range s.minioClient.ListObjects(ctx, s.bucketName, minio.ListObjectsOptions{
 		Prefix:    name,
 		Recursive: recursive,
@@ -408,10 +496,19 @@ func (s *S3) Count(ctx context.Context, name string, recursive bool, countFunc f
 }
 
 // Exists checks whether an object exists
-func (s *S3) Exists(ctx context.Context, name string) (bool, error) {
+func (s *S3) Exists(ctx context.Context, name string) (e bool, err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	name = s.normalizeName(name)
 	if !s.nameIsADirectoryPath(name) { // not a folder
-		_, err := s.minioClient.StatObject(ctx, s.bucketName, name, minio.StatObjectOptions{})
+		_, err = s.minioClient.StatObject(ctx, s.bucketName, name, minio.StatObjectOptions{})
 		switch {
 		case err == nil:
 			return true, nil
@@ -425,39 +522,68 @@ func (s *S3) Exists(ctx context.Context, name string) (bool, error) {
 	// if name is a folder path
 	// we may check for just a stub file. But we do a more thorough check
 	// for a case if stub file will not exist.
-	count, err := s.Count(ctx, name, true, nil)
+	var count int64
+	count, err = s.Count(ctx, name, true, nil)
 	return count > 0, err
 }
 
-func (s *S3) putStubObject(ctx context.Context, name string) error {
+func (s *S3) putStubObject(ctx context.Context, name string) (err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	name = s.nameToStub(name)
-	_, err := s.minioClient.PutObject(ctx, s.bucketName, name, strings.NewReader(DirStubFileContent),
+	_, err = s.minioClient.PutObject(ctx, s.bucketName, name, strings.NewReader(DirStubFileContent),
 		int64(len(DirStubFileContent)), minio.PutObjectOptions{
 			DisableMultipart: true,
 			ContentType:      "text/plain",
 		})
-	return err
+	return
 }
 
 // MakePathAll does nothing in S3 FileSystem. As a workaround to make sure that we have a precreated folder,
 // we create a small file in it.
 // refer to: https://github.com/minio/minio/issues/3555, https://github.com/minio/minio/issues/2423
-func (s *S3) MakePathAll(ctx context.Context, name string) error {
+func (s *S3) MakePathAll(ctx context.Context, name string) (err error) {
 	if !s.emulateEmptyDirs { // if no empty dirs allowed just do nothing
-		return nil
+		return
 	}
+
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	name = s.normalizeName(name)
 
 	for ; name != "/"; name = path.Dir(name) {
-		if err := s.putStubObject(ctx, name); err != nil {
-			return err
+		if err = s.putStubObject(ctx, name); err != nil {
+			return
 		}
 	}
-	return nil
+	return
 }
 
 // Remove object by the given name. Returns no error even if object does not exists
-func (s *S3) Remove(ctx context.Context, name string) error {
+func (s *S3) Remove(ctx context.Context, name string) (err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	name = s.normalizeName(name)
 	name = s.stubToDir(name)           // if stub, convert to dir with trailing '/'
 	if !s.nameIsADirectoryPath(name) { // means was not a stub but a normal object name
@@ -465,9 +591,9 @@ func (s *S3) Remove(ctx context.Context, name string) error {
 	}
 	// if nameIsADirectoryPath
 
-	isEmpty, err := s.IsEmptyPath(ctx, name)
-	if err != nil {
-		return err
+	var isEmpty bool
+	if isEmpty, err = s.IsEmptyPath(ctx, name); err != nil {
+		return
 	}
 	if !isEmpty {
 		return ErrDirectoryNotEmpty
@@ -475,7 +601,7 @@ func (s *S3) Remove(ctx context.Context, name string) error {
 	// if nameIsADirectoryPath && isEmpty
 
 	if !s.emulateEmptyDirs {
-		return nil
+		return
 	}
 
 	return s.minioClient.RemoveObject(ctx, s.bucketName, s.nameToStub(name), minio.RemoveObjectOptions{})
@@ -483,7 +609,16 @@ func (s *S3) Remove(ctx context.Context, name string) error {
 
 // RemoveFiles removes multiple objects in batch by the given names.
 // Returns no error even if any object does not exists
-func (s *S3) RemoveFiles(ctx context.Context, names []string) error {
+func (s *S3) RemoveFiles(ctx context.Context, names []string) (err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	objectInfoC := make(chan minio.ObjectInfo)
 	idx := make([]int, 0, len(names))
 	for i := range names {
@@ -496,8 +631,8 @@ func (s *S3) RemoveFiles(ctx context.Context, names []string) error {
 		}
 		// if nameIsADirectoryPath
 
-		isEmpty, err := s.IsEmptyPath(ctx, names[i])
-		if err != nil {
+		var isEmpty bool
+		if isEmpty, err = s.IsEmptyPath(ctx, names[i]); err != nil {
 			return err
 		}
 		if !isEmpty {
@@ -529,7 +664,16 @@ func (s *S3) RemoveFiles(ctx context.Context, names []string) error {
 }
 
 // RemoveAll objects by the given filepath
-func (s *S3) RemoveAll(ctx context.Context, name string) error {
+func (s *S3) RemoveAll(ctx context.Context, name string) (err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	name = s.normalizeName(name)
 	ctx1, cancel1 := context.WithCancel(ctx)
 	defer cancel1()
@@ -564,12 +708,21 @@ func (s *S3) IsNotExist(err error) bool {
 
 // IsEmptyPath works according to the MakePathAll implementation.
 // Returns true only if specified path contains only a dir stub file.
-func (s *S3) IsEmptyPath(ctx context.Context, name string) (bool, error) {
+func (s *S3) IsEmptyPath(ctx context.Context, name string) (e bool, err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	name = s.normalizeName(name)
 	name = s.nameToDir(name)
 
-	exists, err := s.Exists(ctx, name)
-	if err != nil {
+	var exists bool
+	if exists, err = s.Exists(ctx, name); err != nil {
 		return false, err
 	}
 	if !exists {
@@ -596,10 +749,20 @@ func (s *S3) IsEmptyPath(ctx context.Context, name string) (bool, error) {
 }
 
 // PreparePath works according to the MakePathAll implementation.
-func (s *S3) PreparePath(ctx context.Context, name string) (string, error) {
+func (s *S3) PreparePath(ctx context.Context, name string) (_ string, err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	name = s.normalizeName(name)
-	if exists, err := s.Exists(ctx, name); !exists && err == nil {
-		if err := s.MakePathAll(ctx, name); err != nil {
+	var exists bool
+	if exists, err = s.Exists(ctx, name); !exists && err == nil {
+		if err = s.MakePathAll(ctx, name); err != nil {
 			return "", err
 		}
 	}
@@ -607,10 +770,18 @@ func (s *S3) PreparePath(ctx context.Context, name string) (string, error) {
 }
 
 // Rename object
-func (s *S3) Rename(ctx context.Context, from string, to string) error {
-	from, to = s.normalizeName(from), s.normalizeName(to)
-	if from == to {
-		return nil
+func (s *S3) Rename(ctx context.Context, from string, to string) (err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
+	if from, to = s.normalizeName(from), s.normalizeName(to); from == to {
+		return
 	}
 
 	if s.nameIsADirectoryStub(to) || s.nameIsADirectoryStub(from) {
@@ -619,14 +790,14 @@ func (s *S3) Rename(ctx context.Context, from string, to string) error {
 
 	if !s.nameIsADirectory(from) { // normal object
 		if dir := path.Dir(to); dir != "." && dir != "/" {
-			if err := s.MakePathAll(ctx, dir); err != nil {
-				return err
+			if err = s.MakePathAll(ctx, dir); err != nil {
+				return
 			}
 		}
-		if _, err := s.minioClient.CopyObject(ctx,
+		if _, err = s.minioClient.CopyObject(ctx,
 			minio.CopyDestOptions{Bucket: s.bucketName, Object: to},
 			minio.CopySrcOptions{Bucket: s.bucketName, Object: from}); err != nil {
-			return err
+			return
 		}
 		return s.minioClient.RemoveObject(ctx, s.bucketName, from, minio.RemoveObjectOptions{})
 	}
@@ -636,9 +807,9 @@ func (s *S3) Rename(ctx context.Context, from string, to string) error {
 		return ErrDestinationPathIsNotDirectory
 	}
 
-	exists, err := s.Exists(ctx, from)
-	if err != nil {
-		return err
+	var exists bool
+	if exists, err = s.Exists(ctx, from); err != nil {
+		return
 	}
 	if !exists {
 		return ErrRenamingNonExistentDirectory
@@ -652,30 +823,41 @@ func (s *S3) Rename(ctx context.Context, from string, to string) error {
 	}) {
 		objTo := to + strings.TrimPrefix("/"+objectInfo.Key, from)
 		if dir := path.Dir(objTo); dir != "." && dir != "/" {
-			if err := s.MakePathAll(ctx, dir); err != nil {
-				return err
+			if err = s.MakePathAll(ctx, dir); err != nil {
+				return
 			}
 		}
 
-		if _, err := s.minioClient.CopyObject(ctx,
+		if _, err = s.minioClient.CopyObject(ctx,
 			minio.CopyDestOptions{Bucket: s.bucketName, Object: objTo},
 			minio.CopySrcOptions{Bucket: s.bucketName, Object: objectInfo.Key}); err != nil {
-			return err
+			return
 		}
-		if err := s.minioClient.RemoveObject(ctx, s.bucketName, objectInfo.Key, minio.RemoveObjectOptions{}); err != nil {
+		if err = s.minioClient.RemoveObject(ctx, s.bucketName, objectInfo.Key, minio.RemoveObjectOptions{}); err != nil {
 			s.logger.Errorf("S3.Rename: failed to remove object %q while batch moving", objectInfo.Key)
+			return
 		}
 	}
 	return nil
 }
 
 // Stat returns S3 object information as FileInfo interface
-func (s *S3) Stat(ctx context.Context, name string) (FileInfo, error) {
+func (s *S3) Stat(ctx context.Context, name string) (fi FileInfo, err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	name = s.normalizeName(name)
 	if s.nameIsADirectoryPath(name) && s.emulateEmptyDirs {
-		objectInfo, err := s.minioClient.StatObject(ctx, s.bucketName, s.nameToStub(name), minio.StatObjectOptions{})
-		if err != nil {
-			return nil, err
+		var objectInfo minio.ObjectInfo
+		if objectInfo, err = s.minioClient.StatObject(ctx, s.bucketName, s.nameToStub(name),
+			minio.StatObjectOptions{}); err != nil {
+			return
 		}
 		// objectInfo.LastModified may be zero struct
 		return NewS3FileInfoStub(s, name, objectInfo.LastModified), nil
@@ -683,9 +865,9 @@ func (s *S3) Stat(ctx context.Context, name string) (FileInfo, error) {
 	// if !s.nameIsADirectory(name) || !s.emulateEmptyDirs
 
 	if s.nameIsADirectoryPath(name) {
-		c, err := s.Count(ctx, name, true, nil)
-		if err != nil {
-			return nil, err
+		var c int64
+		if c, err = s.Count(ctx, name, true, nil); err != nil {
+			return
 		}
 		if c > 0 { // directory virtually exists
 			// modTime is not available when empty dirs are not emulated
@@ -695,15 +877,24 @@ func (s *S3) Stat(ctx context.Context, name string) (FileInfo, error) {
 	}
 	// if (!s.nameIsADirectory(name) || !s.emulateEmptyDirs) && !s.nameIsADirectoryPath(name)
 
-	objectInfo, err := s.minioClient.StatObject(ctx, s.bucketName, name, minio.StatObjectOptions{})
-	if err != nil {
-		return nil, err
+	var objectInfo minio.ObjectInfo
+	if objectInfo, err = s.minioClient.StatObject(ctx, s.bucketName, name, minio.StatObjectOptions{}); err != nil {
+		return
 	}
 	return NewS3FileInfo(s, objectInfo), nil
 }
 
 // ReadDir simulates directory reading by the given name
-func (s *S3) ReadDir(ctx context.Context, name string) (FilesInfo, error) {
+func (s *S3) ReadDir(ctx context.Context, name string) (fi FilesInfo, err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	name = s.normalizeName(name)
 	if !s.nameIsADirectory(name) {
 		return nil, ErrNotADirectory
@@ -712,9 +903,10 @@ func (s *S3) ReadDir(ctx context.Context, name string) (FilesInfo, error) {
 
 	dirMap := make(map[string]struct{})
 
-	ctx, cancel := context.WithCancel(ctx)
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
 	defer cancel()
-	fi := make(FilesInfo, 0)
+	fi = make(FilesInfo, 0)
 
 	// reading files
 	for objectInfo := range s.minioClient.ListObjects(ctx, s.bucketName, minio.ListObjectsOptions{
@@ -762,8 +954,8 @@ func (s *S3) ReadDir(ctx context.Context, name string) (FilesInfo, error) {
 	for dirName := range dirMap { // adding directory entries to the list
 		s3fi := NewS3FileInfoStub(s, dirName, time.Time{})
 		if s.emulateEmptyDirs { // may request stat
-			o, err := s.Stat(ctx, s.nameToStub(dirName))
-			if err != nil {
+			var o FileInfo
+			if o, err = s.Stat(ctx, s.nameToStub(dirName)); err != nil {
 				return fi, err
 			}
 			s3fi.oi.LastModified = o.ModTime()
@@ -775,19 +967,19 @@ func (s *S3) ReadDir(ctx context.Context, name string) (FilesInfo, error) {
 }
 
 // walkDir recursively descends path, calling walkDirFunc
-func (s *S3) walkDir(ctx context.Context, name string, d DirEntry, walkDirFunc WalkDirFunc) error {
+func (s *S3) walkDir(ctx context.Context, name string, d DirEntry, walkDirFunc WalkDirFunc) (err error) {
 	name = s.normalizeName(name)
-	if err := walkDirFunc(name, d, nil); err != nil || !d.IsDir() {
+	if err = walkDirFunc(name, d, nil); err != nil || !d.IsDir() {
 		if err == ErrSkipDir && d.IsDir() {
 			err = nil
 		}
-		return err // may be nil if it is not directory
+		return // err may be nil if it is not directory
 	}
 
-	fsi, err := s.ReadDir(ctx, name)
-	if err != nil {
+	var fsi FilesInfo
+	if fsi, err = s.ReadDir(ctx, name); err != nil {
 		if err = walkDirFunc(name, d, err); err != nil { // second call, to report an error from s.ReadDir()
-			return err
+			return
 		}
 	}
 
@@ -800,22 +992,31 @@ func (s *S3) walkDir(ctx context.Context, name string, d DirEntry, walkDirFunc W
 			if err == ErrSkipDir {
 				break
 			}
-			return err
+			return
 		}
 	}
 	return nil
 }
 
 // WalkDir simulates traversing the filesystem from the given directory
-func (s *S3) WalkDir(ctx context.Context, name string, walkDirFunc WalkDirFunc) error {
+func (s *S3) WalkDir(ctx context.Context, name string, walkDirFunc WalkDirFunc) (err error) {
+	if err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
 	name = s.normalizeName(name)
-	fi, err := s.Stat(ctx, name)
-	if err != nil {
+	var fi FileInfo
+	if fi, err = s.Stat(ctx, name); err != nil {
 		return err
 	}
 	err = s.walkDir(ctx, name, S3DirEntry{oi: fi.(S3FileInfo).oi, fi: fi, s3: fi.Sys().(*S3)}, walkDirFunc)
 	if err == ErrSkipDir {
 		return nil
 	}
-	return err
+	return
 }
