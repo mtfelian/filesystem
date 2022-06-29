@@ -49,6 +49,9 @@ func SetAfterOperationCB(f cbFunc) {
 }
 
 func invokeBeforeOperationCB(ctx context.Context) (context.Context, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	cb := BeforeOperationCB()
 	if cb == nil {
 		return ctx, nil
@@ -57,6 +60,9 @@ func invokeBeforeOperationCB(ctx context.Context) (context.Context, error) {
 }
 
 func invokeAfterOperationCB(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
 	cb := AfterOperationCB()
 	if cb == nil {
 		return nil
