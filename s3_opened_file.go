@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"io/fs"
 	"sync"
@@ -9,7 +10,8 @@ import (
 
 // S3OpenedFile implements a wrapper around File
 type S3OpenedFile struct {
-	s3 *S3 // pointer back to S3 control object
+	s3  *S3 // pointer back to S3 control object
+	ctx context.Context
 
 	underlyingMu sync.Mutex
 	underlying   File // underlying local file
@@ -53,7 +55,7 @@ func (of *S3OpenedFile) Sync() error { // todo does it work as intended?
 	if _, err := of.Seek(offset, io.SeekStart); err != nil {
 		return err
 	}
-	if err := of.s3.WriteFile(of.objectName, buf.Bytes()); err != nil { // write it into S3 storage
+	if err := of.s3.WriteFile(of.ctx, of.objectName, buf.Bytes()); err != nil { // write it into S3 storage
 		return err
 	}
 	buf.Reset()
@@ -105,23 +107,23 @@ func (of *S3OpenedFile) Close() error {
 		return err
 	}
 
-	b, err := of.s3.openedFilesLocalFS.ReadFile(of.localName) // re-read local file
+	b, err := of.s3.openedFilesLocalFS.ReadFile(of.ctx, of.localName) // re-read local file
 	if err != nil {
 		return err
 	}
 
-	if err := of.s3.WriteFile(of.objectName, b); err != nil { // write it into S3 storage
+	if err := of.s3.WriteFile(of.ctx, of.objectName, b); err != nil { // write it into S3 storage
 		return err
 	}
 	of.changed = false
 
-	exists, err := of.s3.openedFilesLocalFS.Exists(of.localName) // if local file still exists...
+	exists, err := of.s3.openedFilesLocalFS.Exists(of.ctx, of.localName) // if local file still exists...
 	if err != nil {
 		of.s3.logger.Errorf("failed to of.fsLocal.Exists() on file %q: %v", of.localName, err)
 		return err
 	}
 	if exists { // then remove it
-		if err := of.s3.openedFilesLocalFS.Remove(of.localName); err != nil {
+		if err := of.s3.openedFilesLocalFS.Remove(of.ctx, of.localName); err != nil {
 			of.s3.logger.Errorf("failed to of.fsLocal.Remove() on file %q: %v", of.localName, err)
 			return err
 		}

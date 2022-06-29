@@ -52,24 +52,23 @@ type FileNameData struct {
 
 // FileSystem abstracts a file system
 type FileSystem interface {
-	WithContext(context.Context) FileSystem
-	Create(string) (File, error)
-	Open(string) (File, error)
-	OpenW(string) (File, error)
-	ReadFile(string) ([]byte, error)
-	WriteFile(string, []byte) error
-	WriteFiles([]FileNameData) error
-	Reader(string) (io.ReadCloser, error)
-	Exists(string) (bool, error)
-	MakePathAll(string) error
-	Remove(string) error
-	RemoveFiles([]string) error
-	RemoveAll(string) error
+	Create(context.Context, string) (File, error)
+	Open(context.Context, string) (File, error)
+	OpenW(context.Context, string) (File, error)
+	ReadFile(context.Context, string) ([]byte, error)
+	WriteFile(context.Context, string, []byte) error
+	WriteFiles(context.Context, []FileNameData) error
+	Reader(context.Context, string) (io.ReadCloser, error)
+	Exists(context.Context, string) (bool, error)
+	MakePathAll(context.Context, string) error
+	Remove(context.Context, string) error
+	RemoveFiles(context.Context, []string) error
+	RemoveAll(context.Context, string) error
 	IsNotExist(error) bool
-	IsEmptyPath(string) (bool, error)
-	PreparePath(string) (string, error)
-	Rename(string, string) error
-	Stat(string) (FileInfo, error)
-	ReadDir(string) (FilesInfo, error)
-	WalkDir(string, WalkDirFunc) error
+	IsEmptyPath(context.Context, string) (bool, error)
+	PreparePath(context.Context, string) (string, error)
+	Rename(context.Context, string, string) error
+	Stat(context.Context, string) (FileInfo, error)
+	ReadDir(context.Context, string) (FilesInfo, error)
+	WalkDir(context.Context, string, WalkDirFunc) error
 }
