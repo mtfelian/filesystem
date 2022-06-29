@@ -5,25 +5,30 @@ import (
 	"sync"
 )
 
-// cbFunc is callback func type
-type cbFunc func(context.Context) (context.Context, error)
+type (
+	// cbCtxFunc is callback func type with context propagation
+	cbCtxFunc func(context.Context) (context.Context, error)
+
+	// cbFunc is callback func type
+	cbFunc func(context.Context) error
+)
 
 // callbacks
 var (
 	cbMu              sync.Mutex
-	beforeOperationCB cbFunc
+	beforeOperationCB cbCtxFunc
 	afterOperationCB  cbFunc
 )
 
 // BeforeOperationCB returns callback that will be invoked before each operation
-func BeforeOperationCB() cbFunc {
+func BeforeOperationCB() cbCtxFunc {
 	cbMu.Lock()
 	defer cbMu.Unlock()
 	return beforeOperationCB
 }
 
 // SetBeforeOperationCB sets callback that will be invoked before each operation
-func SetBeforeOperationCB(f cbFunc) {
+func SetBeforeOperationCB(f cbCtxFunc) {
 	cbMu.Lock()
 	defer cbMu.Unlock()
 	beforeOperationCB = f
@@ -56,6 +61,5 @@ func invokeAfterOperationCB(ctx context.Context) error {
 	if cb == nil {
 		return nil
 	}
-	_, err := cb(ctx)
-	return err
+	return cb(ctx)
 }
