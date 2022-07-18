@@ -625,7 +625,7 @@ func (s *S3) RemoveFiles(ctx context.Context, names []string) (err error) {
 		names[i] = s.normalizeName(names[i])
 		names[i] = s.stubToDir(names[i]) // if stub, convert to dir with trailing '/'
 
-		if !s.nameIsADirectoryPath(names[i]) { // means was not a stub but a normal object name
+		if !s.nameIsADirectoryPath(names[i]) || !s.emulateEmptyDirs { // means was not a stub but a normal object name
 			idx = append(idx, i)
 			continue
 		}
@@ -639,10 +639,6 @@ func (s *S3) RemoveFiles(ctx context.Context, names []string) (err error) {
 			return ErrDirectoryNotEmpty
 		}
 		// if nameIsADirectoryPath && isEmpty
-
-		if !s.emulateEmptyDirs {
-			continue
-		}
 		idx = append(idx, i)
 	}
 
