@@ -721,12 +721,14 @@ func (s *S3) IsEmptyPath(ctx context.Context, name string) (e bool, err error) {
 	name = s.normalizeName(name)
 	name = s.nameToDir(name)
 
-	var exists bool
-	if exists, err = s.Exists(ctx, name); err != nil {
-		return false, err
-	}
-	if !exists {
-		return true, nil
+	if s.emulateEmptyDirs {
+		var exists bool
+		if exists, err = s.Exists(ctx, name); err != nil {
+			return false, err
+		}
+		if !exists {
+			return true, nil
+		}
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -750,6 +752,9 @@ func (s *S3) IsEmptyPath(ctx context.Context, name string) (e bool, err error) {
 
 // PreparePath works according to the MakePathAll implementation.
 func (s *S3) PreparePath(ctx context.Context, name string) (_ string, err error) {
+	if !s.emulateEmptyDirs { // if no empty dirs allowed just do nothing
+		return
+	}
 	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
