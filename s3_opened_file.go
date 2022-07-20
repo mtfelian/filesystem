@@ -112,10 +112,12 @@ func (of *S3OpenedFile) Close() error {
 		return err
 	}
 
-	if err := of.s3.WriteFile(of.ctx, of.objectName, b); err != nil { // write it into S3 storage
-		return err
+	if of.changed {
+		if err := of.s3.WriteFile(of.ctx, of.objectName, b); err != nil { // write it into S3 storage
+			return err
+		}
+		of.changed = false
 	}
-	of.changed = false
 
 	exists, err := of.s3.openedFilesLocalFS.Exists(of.ctx, of.localName) // if local file still exists...
 	if err != nil {
