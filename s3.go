@@ -39,6 +39,7 @@ var (
 	ErrNotADirectory                 = errors.New("given path is not a directory")
 	ErrDirectoryNotExists            = errors.New("directory not exists")
 	ErrUnknownFileMode               = errors.New("unknown file mode")
+	ErrFileAlreadyOpened             = errors.New("file already opened")
 )
 
 // S3 implements FileSystem. The implementation is not concurrent-safe
@@ -239,6 +240,10 @@ func (s *S3) openFile(ctx context.Context, name string, fileMode int) (f File, e
 		defer s.OpenedFilesListUnlock()
 		s3OpenedFile, _ = s.openedFilesList.Map()[localFileName]
 	}()
+
+	if s3OpenedFile != nil {
+		return s3OpenedFile.S3File, ErrFileAlreadyOpened
+	}
 
 	if err = s.openedFilesLocalFS.MakePathAll(ctx, filepath.Dir(localFileName)); err != nil {
 		return nil, err

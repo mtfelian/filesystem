@@ -457,14 +457,12 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					var wg sync.WaitGroup
 					amount := 5
 					wg.Add(amount)
-					now := time.Now()
 					f := func() {
-						GinkgoRecover()
+						defer GinkgoRecover()
 						defer wg.Done()
-						// opening waits unlock by autoclosing...
 						fw, err := s3fs.Open(ctx, key1)
-						Expect(err).NotTo(HaveOccurred())
-						Expect(fw).NotTo(BeNil())
+						Expect(err).To(Equal(filesystem.ErrFileAlreadyOpened))
+						Expect(fw).NotTo(BeNil(), "should be internally cached S3OpenedFile")
 
 						By("checking that opened file is again on the list", func() {
 							openedFilesList = s3fs.(*filesystem.S3).OpenedFilesList()
@@ -476,8 +474,6 @@ var _ = Describe("S3 FileSystem implementation", func() {
 						go f()
 					}
 					wg.Wait()
-					Expect(time.Now()).To(BeTemporally("~", now.Add(time.Duration(amount)*ttl), 2*ttl),
-						"expected time passed should be: n*ttl")
 
 					By("waiting for autoclosing", func() {
 						s3FileEntry := lookUpForSingleEntry()
