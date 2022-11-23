@@ -326,6 +326,12 @@ func (l *Local) WalkDir(ctx context.Context, root string, walkDirFunc WalkDirFun
 	}()
 
 	return filepath.WalkDir(root, func(path string, info fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if info == nil {
+			return fs.ErrInvalid
+		}
 		infoInfo, err := info.Info()
 		if err != nil {
 			return err
