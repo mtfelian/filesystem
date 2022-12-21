@@ -711,7 +711,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			})
 
 			It("checks removing a non-existent directory path with '/', should not succeed", func() {
-				dir := path.Dir("/4/5/6/7/")
+				dir := s3fs.Dir("/4/5/6/7/")
 				Expect(s3fs.Remove(ctx, dir)).To(Succeed())
 				By("checking folder path existence", func() {
 					exists, err := s3fs.Exists(ctx, dir)
@@ -827,7 +827,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				Expect(b).To(BeEquivalentTo(content1))
 
 				By("check that every subdir have stub file", func() {
-					for dirName := path.Dir(noSuchKey); dirName != "/"; dirName = path.Dir(dirName) {
+					for dirName := s3fs.Dir(noSuchKey); dirName != "/"; dirName = s3fs.Dir(dirName) {
 						exists, err := s3fs.Exists(ctx, dirName+"/"+filesystem.DirStubFileName)
 						Expect(err).NotTo(HaveOccurred(), "checking stub existence err, dirname=%q", dirName)
 						Expect(exists).To(BeTrue(), "checking stub existence, dirname=%q", dirName)
@@ -1330,7 +1330,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			})
 
 			It("checks removing a non-existent directory path with '/', should not succeed", func() {
-				dir := path.Dir("/4/5/6/7/")
+				dir := s3fs.Dir("/4/5/6/7/")
 				Expect(s3fs.Remove(ctx, dir)).To(Succeed())
 				By("checking folder path existence", func() {
 					exists, err := s3fs.Exists(ctx, dir)

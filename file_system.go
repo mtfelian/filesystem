@@ -71,4 +71,6 @@ type FileSystem interface {
 	Stat(context.Context, string) (FileInfo, error)
 	ReadDir(context.Context, string) (FilesInfo, error)
 	WalkDir(context.Context, string, WalkDirFunc) error
+	Join(...string) string
+	Dir(string) string
 }

@@ -1,7 +1,11 @@
-FROM golang:1.16.15
+FROM golang:1.19.4
 WORKDIR '/github.com/mtfelian/filesystem'
 COPY go.* .
-RUN go mod download
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    go mod download
 COPY . .
-RUN go install github.com/onsi/ginkgo/ginkgo@v1.16.5
-CMD ["sh", "-c", "ginkgo -r -race"]
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go install github.com/onsi/ginkgo/ginkgo@v1.16.5 && \
+    ginkgo build
+CMD ["sh", "-c", "ginkgo -race filesystem.test"]

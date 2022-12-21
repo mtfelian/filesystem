@@ -42,7 +42,7 @@ func (l *Local) Create(ctx context.Context, name string) (f File, err error) {
 		} // else drop callback error
 	}()
 
-	if err = os.MkdirAll(filepath.Dir(name), 0777); err != nil {
+	if err = os.MkdirAll(l.Dir(name), 0777); err != nil {
 		return
 	}
 	return os.Create(name)
@@ -59,7 +59,7 @@ func (l *Local) OpenW(ctx context.Context, name string) (f File, err error) {
 		} // else drop callback error
 	}()
 
-	if err = os.MkdirAll(filepath.Dir(name), 0777); err != nil {
+	if err = os.MkdirAll(l.Dir(name), 0777); err != nil {
 		return
 	}
 	return os.OpenFile(name, os.O_WRONLY, 0666)
@@ -90,7 +90,7 @@ func (l *Local) WriteFile(ctx context.Context, name string, data []byte) (err er
 		} // else drop callback error
 	}()
 
-	if err = os.MkdirAll(filepath.Dir(name), 0777); err != nil {
+	if err = os.MkdirAll(l.Dir(name), 0777); err != nil {
 		return
 	}
 	return os.WriteFile(name, data, 0644)
@@ -108,7 +108,7 @@ func (l *Local) WriteFiles(ctx context.Context, f []FileNameData) (err error) {
 	}()
 
 	for _, el := range f {
-		if err = os.MkdirAll(filepath.Dir(el.Name), 0777); err != nil {
+		if err = os.MkdirAll(l.Dir(el.Name), 0777); err != nil {
 			return
 		}
 		if err = os.WriteFile(el.Name, el.Data, 0644); err != nil {
@@ -339,3 +339,9 @@ func (l *Local) WalkDir(ctx context.Context, root string, walkDirFunc WalkDirFun
 		return walkDirFunc(path, LocalDirEntry{fi: NewLocalFileInfo(infoInfo, path)}, err)
 	})
 }
+
+// Join the path segments
+func (l *Local) Join(names ...string) string { return filepath.Join(names...) }
+
+// Dir returns parent directory path
+func (l *Local) Dir(name string) string { return filepath.Dir(name) }

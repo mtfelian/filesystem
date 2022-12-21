@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -163,7 +162,7 @@ func (s *S3) stubToDir(name string) string {
 	if !s.nameIsADirectoryStub(name) {
 		return name
 	}
-	return strings.TrimPrefix(path.Dir(name)+"/", ".")
+	return strings.TrimPrefix(s.Dir(name)+"/", ".")
 }
 func (s *S3) normalizeName(name string) string {
 	if len(name) == 0 {
@@ -206,7 +205,7 @@ func (s *S3) openedFilesListCleaning() {
 
 // TempFileName converts file name to a temporary file name
 func (s *S3) TempFileName(name string) string {
-	return filepath.Join(s.openedFilesTempDir, TempDir, strings.ReplaceAll(name, "/", "__"))
+	return s.openedFilesLocalFS.Join(s.openedFilesTempDir, TempDir, strings.ReplaceAll(name, "/", "__"))
 }
 
 const (
@@ -245,7 +244,7 @@ func (s *S3) openFile(ctx context.Context, name string, fileMode int) (f File, e
 		return s3OpenedFile.S3File, ErrFileAlreadyOpened
 	}
 
-	if err = s.openedFilesLocalFS.MakePathAll(ctx, filepath.Dir(localFileName)); err != nil {
+	if err = s.openedFilesLocalFS.MakePathAll(ctx, s.openedFilesLocalFS.Dir(localFileName)); err != nil {
 		return nil, err
 	}
 
@@ -337,7 +336,7 @@ func (s *S3) Create(ctx context.Context, name string) (f File, err error) {
 		} // else drop callback error
 	}()
 
-	if dir := path.Dir(name); dir != "." && dir != "/" {
+	if dir := s.Dir(name); dir != "." && dir != "/" {
 		if err = s.MakePathAll(ctx, dir); err != nil {
 			return
 		}
@@ -360,7 +359,7 @@ func (s *S3) OpenW(ctx context.Context, name string) (f File, err error) {
 		} // else drop callback error
 	}()
 
-	if dir := path.Dir(name); dir != "." && dir != "/" {
+	if dir := s.Dir(name); dir != "." && dir != "/" {
 		if err = s.MakePathAll(ctx, dir); err != nil {
 			return
 		}
@@ -400,7 +399,7 @@ func (s *S3) WriteFile(ctx context.Context, name string, b []byte) (err error) {
 
 	name = s.normalizeName(name)
 	if s.emulateEmptyDirs {
-		if dir := path.Dir(name); dir != "." && dir != "/" {
+		if dir := s.Dir(name); dir != "." && dir != "/" {
 			if err = s.MakePathAll(ctx, dir); err != nil {
 				return
 			}
@@ -427,7 +426,7 @@ func (s *S3) WriteFiles(ctx context.Context, f []FileNameData) (err error) {
 		f[i].Name = s.normalizeName(el.Name)
 		if s.emulateEmptyDirs {
 			// todo may be optimized if many files have to be written in same subdir structure via a tree
-			if dir := path.Dir(el.Name); dir != "." && dir != "/" {
+			if dir := s.Dir(el.Name); dir != "." && dir != "/" {
 				if err = s.MakePathAll(ctx, dir); err != nil {
 					return
 				}
@@ -570,7 +569,7 @@ func (s *S3) MakePathAll(ctx context.Context, name string) (err error) {
 
 	name = s.normalizeName(name)
 
-	for ; name != "/"; name = path.Dir(name) {
+	for ; name != "/"; name = s.Dir(name) {
 		if err = s.putStubObject(ctx, name); err != nil {
 			return
 		}
@@ -795,7 +794,7 @@ func (s *S3) Rename(ctx context.Context, from string, to string) (err error) {
 	}
 
 	if !s.nameIsADirectory(from) { // normal object
-		if dir := path.Dir(to); dir != "." && dir != "/" {
+		if dir := s.Dir(to); dir != "." && dir != "/" {
 			if err = s.MakePathAll(ctx, dir); err != nil {
 				return
 			}
@@ -828,7 +827,7 @@ func (s *S3) Rename(ctx context.Context, from string, to string) (err error) {
 		Recursive: true,
 	}) {
 		objTo := to + strings.TrimPrefix("/"+objectInfo.Key, from)
-		if dir := path.Dir(objTo); dir != "." && dir != "/" {
+		if dir := s.Dir(objTo); dir != "." && dir != "/" {
 			if err = s.MakePathAll(ctx, dir); err != nil {
 				return
 			}
@@ -947,9 +946,9 @@ func (s *S3) ReadDir(ctx context.Context, name string) (fi FilesInfo, err error)
 
 		// only current level directories
 		var key string
-		parent := func() string { return path.Dir("/"+objectInfo.Key) + "/" }
+		parent := func() string { return s.Dir("/"+objectInfo.Key) + "/" }
 		stillNotRoot := func() bool { return len(strings.TrimRight(key, "/")) > 0 }
-		upwards := func() string { return path.Dir(strings.TrimSuffix(key, "/")) + "/" }
+		upwards := func() string { return s.Dir(strings.TrimSuffix(key, "/")) + "/" }
 		for key = parent(); stillNotRoot(); key = upwards() {
 			if strings.HasPrefix(key, name) && strings.Count(strings.TrimPrefix(key, name), "/") <= 1 && key != name {
 				dirMap[key] = struct{}{}
@@ -1026,3 +1025,9 @@ func (s *S3) WalkDir(ctx context.Context, name string, walkDirFunc WalkDirFunc) 
 	}
 	return
 }
+
+// Join the path segments
+func (s *S3) Join(paths ...string) string { return path.Join(paths...) }
+
+// Dir returns parent directory path
+func (s *S3) Dir(name string) string { return path.Dir(name) }
