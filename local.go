@@ -345,3 +345,6 @@ func (l *Local) Join(names ...string) string { return filepath.Join(names...) }
 
 // Dir returns parent directory path
 func (l *Local) Dir(name string) string { return filepath.Dir(name) }
+
+// Ext returns file name extension
+func (l *Local) Ext(name string) string { return filepath.Ext(name) }

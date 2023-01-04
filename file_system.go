@@ -73,4 +73,5 @@ type FileSystem interface {
 	WalkDir(context.Context, string, WalkDirFunc) error
 	Join(...string) string
 	Dir(string) string
+	Ext(string) string
 }

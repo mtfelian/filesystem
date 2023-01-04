@@ -1031,3 +1031,6 @@ func (s *S3) Join(paths ...string) string { return path.Join(paths...) }
 
 // Dir returns parent directory path
 func (s *S3) Dir(name string) string { return path.Dir(name) }
+
+// Ext returns object name extension
+func (s *S3) Ext(name string) string { return path.Ext(name) }
