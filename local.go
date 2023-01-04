@@ -349,5 +349,6 @@ func (l *Local) Dir(name string) string { return filepath.Dir(name) }
 // Ext returns file name extension
 func (l *Local) Ext(name string) string { return filepath.Ext(name) }
 
-// Prepend returns file path with basePath and group subdirectories being prepended
+// Prepend returns file path with basePath and group subdirectories being prepended.
+// This method is transitional before full group support will be implemented.
 func (l *Local) Prepend(basePath, group, name string) string { return l.Join(basePath, group, name) }
