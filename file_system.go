@@ -74,5 +74,4 @@ type FileSystem interface {
 	Join(...string) string
 	Dir(string) string
 	Ext(string) string
-	Prepend(string, string, string) string
 }

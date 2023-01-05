@@ -1034,9 +1034,3 @@ func (s *S3) Dir(name string) string { return path.Dir(name) }
 
 // Ext returns object name extension
 func (s *S3) Ext(name string) string { return path.Ext(name) }
-
-// Prepend returns file path with bucket and basePath part being prepended.
-// This method is transitional before full bucket support will be implemented.
-func (s *S3) Prepend(basePath, bucketName, name string) string {
-	return s.Join(bucketName, basePath, name)
-}
