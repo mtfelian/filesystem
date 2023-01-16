@@ -74,4 +74,5 @@ type FileSystem interface {
 	Join(...string) string
 	Dir(string) string
 	Ext(string) string
+	Base(string) string
 }

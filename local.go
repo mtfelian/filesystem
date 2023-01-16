@@ -348,3 +348,6 @@ func (l *Local) Dir(name string) string { return filepath.Dir(name) }
 
 // Ext returns file name extension
 func (l *Local) Ext(name string) string { return filepath.Ext(name) }
+
+// Base returns the last element of path
+func (l *Local) Base(name string) string { return filepath.Base(name) }
