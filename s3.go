@@ -475,11 +475,12 @@ func (s *S3) Count(ctx context.Context, name string, recursive bool,
 	}()
 
 	name = s.normalizeName(name)
+
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	defer cancel()
 	for objectInfo := range s.minioClient.ListObjects(ctx, s.bucketName, minio.ListObjectsOptions{
-		Prefix:    name,
+		Prefix:    strings.TrimPrefix(name, "/"),
 		Recursive: recursive,
 	}) {
 		c++
@@ -678,7 +679,7 @@ func (s *S3) RemoveAll(ctx context.Context, name string) (err error) {
 	ctx1, cancel1 := context.WithCancel(ctx)
 	defer cancel1()
 	objectInfoC := s.minioClient.ListObjects(ctx1, s.bucketName, minio.ListObjectsOptions{
-		Prefix:    name,
+		Prefix:    strings.TrimPrefix(name, "/"),
 		Recursive: s.nameIsADirectory(name),
 	})
 
@@ -735,7 +736,7 @@ func (s *S3) IsEmptyPath(ctx context.Context, name string) (e bool, err error) {
 	defer cancel()
 	var i int
 	for objectInfo := range s.minioClient.ListObjects(ctx, s.bucketName, minio.ListObjectsOptions{
-		Prefix:    name,
+		Prefix:    strings.TrimPrefix(name, "/"),
 		Recursive: true,
 	}) {
 		if objectInfo.Err != nil {
@@ -752,9 +753,6 @@ func (s *S3) IsEmptyPath(ctx context.Context, name string) (e bool, err error) {
 
 // PreparePath works according to the MakePathAll implementation.
 func (s *S3) PreparePath(ctx context.Context, name string) (_ string, err error) {
-	if !s.emulateEmptyDirs { // if no empty dirs allowed just do nothing
-		return
-	}
 	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
@@ -765,6 +763,10 @@ func (s *S3) PreparePath(ctx context.Context, name string) (_ string, err error)
 	}()
 
 	name = s.normalizeName(name)
+	if !s.emulateEmptyDirs { // if no empty dirs allowed just do nothing
+		return name, nil
+	}
+
 	var exists bool
 	if exists, err = s.Exists(ctx, name); !exists && err == nil {
 		if err = s.MakePathAll(ctx, name); err != nil {
@@ -823,7 +825,7 @@ func (s *S3) Rename(ctx context.Context, from string, to string) (err error) {
 	ctx1, cancel1 := context.WithCancel(ctx)
 	defer cancel1()
 	for objectInfo := range s.minioClient.ListObjects(ctx1, s.bucketName, minio.ListObjectsOptions{
-		Prefix:    from,
+		Prefix:    strings.TrimPrefix(from, "/"),
 		Recursive: true,
 	}) {
 		objTo := to + strings.TrimPrefix("/"+objectInfo.Key, from)
@@ -915,7 +917,7 @@ func (s *S3) ReadDir(ctx context.Context, name string) (fi FilesInfo, err error)
 
 	// reading files
 	for objectInfo := range s.minioClient.ListObjects(ctx, s.bucketName, minio.ListObjectsOptions{
-		Prefix:    name,
+		Prefix:    strings.TrimPrefix(name, "/"),
 		Recursive: false,
 	}) {
 		if objectInfo.Err != nil {
@@ -937,7 +939,7 @@ func (s *S3) ReadDir(ctx context.Context, name string) (fi FilesInfo, err error)
 	// reading dir entries
 
 	for objectInfo := range s.minioClient.ListObjects(ctx, s.bucketName, minio.ListObjectsOptions{
-		Prefix:    name,
+		Prefix:    strings.TrimPrefix(name, "/"),
 		Recursive: true,
 	}) {
 		if objectInfo.Err != nil {
