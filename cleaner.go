@@ -17,8 +17,8 @@ type Node struct {
 	Children []*Node
 }
 
-// NewEmptySubtreeCleaner creates and returns a new EmptySubtreeCleaner
-func NewEmptySubtreeCleaner(fs FileSystem) EmptySubtreeCleaner { return EmptySubtreeCleaner{FS: fs} }
+// newEmptySubtreeCleaner creates and returns a new EmptySubtreeCleaner
+func newEmptySubtreeCleaner(fs FileSystem) EmptySubtreeCleaner { return EmptySubtreeCleaner{FS: fs} }
 
 // IsDir returns true if given name is a directory
 func IsDir(ctx context.Context, fs FileSystem, name string) (bool, error) {
@@ -93,16 +93,23 @@ func (esc *EmptySubtreeCleaner) recursiveEmptyDelete(ctx context.Context, root *
 	}
 	if !isDir {
 		return nil
-	} else if content, _ := esc.FS.ReadDir(ctx, root.Path); len(content) != 0 {
+	}
+
+	isEmpty, err := esc.FS.IsEmptyPath(ctx, root.Path)
+	if err != nil {
+		return err
+	}
+	if !isEmpty {
 		return nil
 	}
+
 	return esc.FS.Remove(ctx, root.Path)
 }
 
 // RemoveEmptyDirs removed all subtrees of directories inside basePath
 // which contains only empty directories recursively
 func RemoveEmptyDirs(ctx context.Context, fs FileSystem, basePath string) error {
-	esc := NewEmptySubtreeCleaner(fs)
+	esc := newEmptySubtreeCleaner(fs)
 	root, err := esc.buildTreeFromDir(ctx, basePath)
 	if err != nil {
 		return err
