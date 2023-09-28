@@ -2,13 +2,13 @@ package filesystem
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 )
 
 // EmptySubtreeCleaner removes empty directories subtrees
 type EmptySubtreeCleaner struct {
-	FS FileSystem
+	FS    FileSystem
+	Count int
 }
 
 // Node is a tree node
@@ -68,16 +68,6 @@ func (esc *EmptySubtreeCleaner) buildTreeFromDir(ctx context.Context, basePath s
 	return root, nil
 }
 
-func (esc *EmptySubtreeCleaner) printDirTree(root *Node) {
-	fmt.Println(root.Path)
-	for _, each := range root.Children {
-		esc.printDirTree(each)
-	}
-	if len(root.Children) == 0 {
-		fmt.Println("===========")
-	}
-}
-
 func (esc *EmptySubtreeCleaner) recursiveEmptyDelete(ctx context.Context, root *Node) error {
 	if root == nil {
 		return nil
@@ -103,17 +93,17 @@ func (esc *EmptySubtreeCleaner) recursiveEmptyDelete(ctx context.Context, root *
 		return nil
 	}
 
+	esc.Count++
 	return esc.FS.Remove(ctx, root.Path)
 }
 
 // RemoveEmptyDirs removed all subtrees of directories inside basePath
 // which contains only empty directories recursively
-func RemoveEmptyDirs(ctx context.Context, fs FileSystem, basePath string) error {
+func RemoveEmptyDirs(ctx context.Context, fs FileSystem, basePath string) (int, error) {
 	esc := newEmptySubtreeCleaner(fs)
 	root, err := esc.buildTreeFromDir(ctx, basePath)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	esc.printDirTree(root)
-	return esc.recursiveEmptyDelete(ctx, root)
+	return esc.Count, esc.recursiveEmptyDelete(ctx, root)
 }
