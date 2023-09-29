@@ -59,7 +59,7 @@ var _ = Describe("recursive empty subtree cleaner", func() {
 				Expect(fs.WriteFile(ctx, filePath, []byte("test content"))).To(Succeed())
 			})
 
-			count, err := filesystem.RemoveEmptyDirs(ctx, fs, basePath)
+			count, err := filesystem.RemoveEmptyDirs(ctx, fs, logger, basePath, filesystem.AlgoDFS)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(count).To(Equal(3))
 
@@ -172,7 +172,7 @@ var _ = Describe("recursive empty subtree cleaner", func() {
 				Expect(fs.WriteFile(ctx, filePath, []byte("test content"))).To(Succeed())
 			})
 
-			count, err := filesystem.RemoveEmptyDirs(ctx, fs, basePath)
+			count, err := filesystem.RemoveEmptyDirs(ctx, fs, logger, basePath, filesystem.AlgoDFS)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(count).To(Equal(3))
 
