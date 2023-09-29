@@ -100,6 +100,7 @@ func (esc *EmptySubtreeCleaner) recursiveEmptyDelete(ctx context.Context, root *
 	}
 
 	esc.Count++
+	esc.Logger.Infof("cleaner: removing %q...", root.Path)
 	return esc.FS.Remove(ctx, root.Path)
 }
 
@@ -129,6 +130,7 @@ func (esc *EmptySubtreeCleaner) dfs(ctx context.Context, p string) error {
 	}
 	if isEmpty {
 		esc.Count++
+		esc.Logger.Infof("cleaner: removing %q...", p)
 		if err := esc.FS.Remove(ctx, p); err != nil {
 			return err
 		}
