@@ -51,6 +51,8 @@ var _ = Describe("recursive empty subtree cleaner", func() {
 			var filePath string
 			By("creating directory tree", func() {
 				Expect(fs.MakePathAll(ctx, fs.Join(basePath, "dir0", "dir1", "dir2", "dir3"))).To(Succeed())
+				filePath = fs.Join(basePath, "dir0", "dir1", "dir2", "file.txt")
+				Expect(fs.WriteFile(ctx, filePath, []byte("test content"))).To(Succeed())
 				Expect(fs.MakePathAll(ctx, fs.Join(basePath, "dir0", "dir4", "dir5"))).To(Succeed())
 				Expect(fs.MakePathAll(ctx, fs.Join(basePath, "dir0", "dir6"))).To(Succeed())
 				filePath = fs.Join(basePath, "dir0", "dir6", "file.txt")
@@ -59,15 +61,16 @@ var _ = Describe("recursive empty subtree cleaner", func() {
 
 			count, err := filesystem.RemoveEmptyDirs(ctx, fs, basePath)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(count).To(Equal(5))
+			Expect(count).To(Equal(3))
 
 			for i, tc := range []struct {
 				path     string
 				expected bool
 			}{
 				{fs.Join(basePath, "dir0"), true},
-				{fs.Join(basePath, "dir0", "dir1"), false},
-				{fs.Join(basePath, "dir0", "dir1", "dir2"), false},
+				{fs.Join(basePath, "dir0", "dir1"), true},
+				{fs.Join(basePath, "dir0", "dir1", "dir2"), true},
+				{fs.Join(basePath, "dir0", "dir1", "dir2", "file.txt"), true},
 				{fs.Join(basePath, "dir0", "dir1", "dir2", "dir3"), false},
 				{fs.Join(basePath, "dir0", "dir4"), false},
 				{fs.Join(basePath, "dir0", "dir4", "dir5"), false},
@@ -161,6 +164,8 @@ var _ = Describe("recursive empty subtree cleaner", func() {
 			var filePath string
 			By("creating directory tree", func() {
 				Expect(fs.MakePathAll(ctx, fs.Join(basePath, "dir0", "dir1", "dir2", "dir3"))).To(Succeed())
+				filePath = fs.Join(basePath, "dir0", "dir1", "dir2", "file.txt")
+				Expect(fs.WriteFile(ctx, filePath, []byte("test content"))).To(Succeed())
 				Expect(fs.MakePathAll(ctx, fs.Join(basePath, "dir0", "dir4", "dir5"))).To(Succeed())
 				Expect(fs.MakePathAll(ctx, fs.Join(basePath, "dir0", "dir6"))).To(Succeed())
 				filePath = fs.Join(basePath, "dir0", "dir6", "file.txt")
@@ -169,15 +174,16 @@ var _ = Describe("recursive empty subtree cleaner", func() {
 
 			count, err := filesystem.RemoveEmptyDirs(ctx, fs, basePath)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(count).To(Equal(5))
+			Expect(count).To(Equal(3))
 
 			for i, tc := range []struct {
 				path     string
 				expected bool
 			}{
 				{fs.Join(basePath, "dir0"), true},
-				{fs.Join(basePath, "dir0", "dir1"), false},
-				{fs.Join(basePath, "dir0", "dir1", "dir2"), false},
+				{fs.Join(basePath, "dir0", "dir1"), true},
+				{fs.Join(basePath, "dir0", "dir1", "dir2"), true},
+				{fs.Join(basePath, "dir0", "dir1", "dir2", "file.txt"), true},
 				{fs.Join(basePath, "dir0", "dir1", "dir2", "dir3"), false},
 				{fs.Join(basePath, "dir0", "dir4"), false},
 				{fs.Join(basePath, "dir0", "dir4", "dir5"), false},

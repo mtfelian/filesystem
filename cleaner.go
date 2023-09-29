@@ -2,13 +2,14 @@ package filesystem
 
 import (
 	"context"
-	"path/filepath"
+	"errors"
 )
 
 // EmptySubtreeCleaner removes empty directories subtrees
 type EmptySubtreeCleaner struct {
 	FS    FileSystem
 	Count int
+	stack []string
 }
 
 // Node is a tree node
@@ -29,12 +30,12 @@ func IsDir(ctx context.Context, fs FileSystem, name string) (bool, error) {
 	return fi.IsDir(), nil
 }
 
-func (esc *EmptySubtreeCleaner) buildTreeFromDir(ctx context.Context, basePath string) (*Node, error) {
+func (esc *EmptySubtreeCleaner) bfs(ctx context.Context, basePath string) (*Node, error) {
 	if _, err := esc.FS.ReadDir(ctx, basePath); err != nil {
 		return nil, err
 	}
 	root := &Node{Path: basePath}
-	const maxDepth = 500 // Consider that there can not be any dir with > 500 depth
+	const maxDepth = 500 // we assume that there will not be any dir with >500 depth
 
 	queue := make(chan *Node, maxDepth)
 	queue <- root
@@ -59,7 +60,7 @@ func (esc *EmptySubtreeCleaner) buildTreeFromDir(ctx context.Context, basePath s
 
 		data.Children = make([]*Node, len(contents))
 		for i, content := range contents {
-			data.Children[i] = &Node{Path: filepath.Join(data.Path, content.Name())}
+			data.Children[i] = &Node{Path: esc.FS.Join(data.Path, content.Name())}
 			if content.IsDir() {
 				queue <- data.Children[i]
 			}
@@ -97,13 +98,65 @@ func (esc *EmptySubtreeCleaner) recursiveEmptyDelete(ctx context.Context, root *
 	return esc.FS.Remove(ctx, root.Path)
 }
 
+func (esc *EmptySubtreeCleaner) dfs(ctx context.Context, p string) error {
+	contents, err := esc.FS.ReadDir(ctx, p)
+	if err != nil {
+		return err
+	}
+	for _, item := range contents {
+		itemPath := esc.FS.Join(p, item.Name())
+		isDir, err := IsDir(ctx, esc.FS, itemPath)
+		if err != nil {
+			return err
+		}
+		if !isDir {
+			continue
+		}
+		esc.stack = append(esc.stack, itemPath)
+		if err := esc.dfs(ctx, itemPath); err != nil {
+			return err
+		}
+	}
+	esc.stack = esc.stack[:len(esc.stack)-1]
+	isEmpty, err := esc.FS.IsEmptyPath(ctx, p)
+	if err != nil {
+		return err
+	}
+	if isEmpty {
+		esc.Count++
+		if err := esc.FS.Remove(ctx, p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+const (
+	AlgoDFS = "DFS"
+	AlgoBFS = "BFS"
+)
+
+var errUnknownAlgorithm = errors.New("unknown algorithm")
+
 // RemoveEmptyDirs removed all subtrees of directories inside basePath
 // which contains only empty directories recursively
-func RemoveEmptyDirs(ctx context.Context, fs FileSystem, basePath string) (int, error) {
+func RemoveEmptyDirs(ctx context.Context, fs FileSystem, basePath, algo string) (int, error) {
 	esc := newEmptySubtreeCleaner(fs)
-	root, err := esc.buildTreeFromDir(ctx, basePath)
-	if err != nil {
-		return 0, err
+	if algo != AlgoDFS && algo != AlgoBFS {
+		algo = AlgoDFS
 	}
-	return esc.Count, esc.recursiveEmptyDelete(ctx, root)
+	switch algo {
+	case AlgoBFS:
+		root, err := esc.bfs(ctx, basePath)
+		if err != nil {
+			return 0, err
+		}
+		return esc.Count, esc.recursiveEmptyDelete(ctx, root)
+	case AlgoDFS:
+		esc.stack = make([]string, 0, 500)
+		esc.stack = append(esc.stack, basePath)
+		return esc.Count, esc.dfs(ctx, basePath)
+	default:
+		return 0, errUnknownAlgorithm
+	}
 }
