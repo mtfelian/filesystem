@@ -3,13 +3,16 @@ package filesystem
 import (
 	"context"
 	"errors"
+
+	"github.com/sirupsen/logrus"
 )
 
 // EmptySubtreeCleaner removes empty directories subtrees
 type EmptySubtreeCleaner struct {
-	FS    FileSystem
-	Count int
-	stack []string
+	FS     FileSystem
+	Count  int
+	stack  []string
+	Logger logrus.FieldLogger
 }
 
 // Node is a tree node
@@ -19,7 +22,9 @@ type Node struct {
 }
 
 // newEmptySubtreeCleaner creates and returns a new EmptySubtreeCleaner
-func newEmptySubtreeCleaner(fs FileSystem) EmptySubtreeCleaner { return EmptySubtreeCleaner{FS: fs} }
+func newEmptySubtreeCleaner(fs FileSystem, logger logrus.FieldLogger) EmptySubtreeCleaner {
+	return EmptySubtreeCleaner{FS: fs, Logger: logger}
+}
 
 // IsDir returns true if given name is a directory
 func IsDir(ctx context.Context, fs FileSystem, name string) (bool, error) {
@@ -95,6 +100,7 @@ func (esc *EmptySubtreeCleaner) recursiveEmptyDelete(ctx context.Context, root *
 	}
 
 	esc.Count++
+	esc.Logger.Infof("cleaner: removing %q...", root.Path)
 	return esc.FS.Remove(ctx, root.Path)
 }
 
@@ -124,6 +130,7 @@ func (esc *EmptySubtreeCleaner) dfs(ctx context.Context, p string) error {
 	}
 	if isEmpty {
 		esc.Count++
+		esc.Logger.Infof("cleaner: removing %q...", p)
 		if err := esc.FS.Remove(ctx, p); err != nil {
 			return err
 		}
@@ -140,21 +147,24 @@ var errUnknownAlgorithm = errors.New("unknown algorithm")
 
 // RemoveEmptyDirs removed all subtrees of directories inside basePath
 // which contains only empty directories recursively
-func RemoveEmptyDirs(ctx context.Context, fs FileSystem, basePath, algo string) (int, error) {
-	esc := newEmptySubtreeCleaner(fs)
+func RemoveEmptyDirs(ctx context.Context, fs FileSystem, logger logrus.FieldLogger, basePath, algo string) (int, error) {
+	esc := newEmptySubtreeCleaner(fs, logger)
 	if algo != AlgoDFS && algo != AlgoBFS {
 		algo = AlgoDFS
 	}
 	switch algo {
 	case AlgoBFS:
+		esc.Logger.Info("cleaner: building directory tree (BFS)...")
 		root, err := esc.bfs(ctx, basePath)
 		if err != nil {
 			return 0, err
 		}
+		esc.Logger.Info("cleaner: removing directories...")
 		return esc.Count, esc.recursiveEmptyDelete(ctx, root)
 	case AlgoDFS:
 		esc.stack = make([]string, 0, 500)
 		esc.stack = append(esc.stack, basePath)
+		esc.Logger.Info("cleaner: removing directories (DFS)...")
 		return esc.Count, esc.dfs(ctx, basePath)
 	default:
 		return 0, errUnknownAlgorithm
