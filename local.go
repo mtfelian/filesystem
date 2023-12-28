@@ -2,6 +2,7 @@ package filesystem
 
 import (
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"io/ioutil"
@@ -333,6 +334,9 @@ func (l *Local) WalkDir(ctx context.Context, root string, walkDirFunc WalkDirFun
 			return fs.ErrInvalid
 		}
 		infoInfo, err := info.Info()
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
