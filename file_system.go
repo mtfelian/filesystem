@@ -62,7 +62,7 @@ type FileSystem interface {
 	Exists(context.Context, string) (bool, error)
 	MakePathAll(context.Context, string) error
 	Remove(context.Context, string) error
-	RemoveFiles(context.Context, []string) error
+	RemoveFiles(context.Context, []string) ([]string, error)
 	RemoveAll(context.Context, string) error
 	IsNotExist(error) bool
 	IsEmptyPath(context.Context, string) (bool, error)

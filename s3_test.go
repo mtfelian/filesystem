@@ -558,7 +558,9 @@ var _ = Describe("S3 FileSystem implementation", func() {
 
 		Describe("RemoveFiles", func() {
 			It("checks batch removing all existing objects", func() {
-				Expect(s3fs.RemoveFiles(ctx, []string{key2, key3, key1})).To(Succeed())
+				failed, err := s3fs.RemoveFiles(ctx, []string{key2, key3, key1})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(failed).To(BeEmpty())
 				By("checking that removed objects no more exists", func() {
 					exists, err := s3fs.Exists(ctx, key1)
 					Expect(err).NotTo(HaveOccurred())
@@ -575,7 +577,8 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			})
 
 			It("checks batch removing mix of existing and not existing objects", func() {
-				Expect(s3fs.RemoveFiles(ctx, []string{key2, noSuchKey})).To(Succeed())
+				_, err := s3fs.RemoveFiles(ctx, []string{key2, noSuchKey})
+				Expect(err).NotTo(HaveOccurred())
 				By("checking that removed objects no more exists", func() {
 					exists, err := s3fs.Exists(ctx, key1)
 					Expect(err).NotTo(HaveOccurred())
@@ -594,7 +597,9 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			Context("non-empty dir", func() {
 				It("checks batch removing a non-empty directory path with '/', should not succeed, "+
 					"nothing should be removed", func() {
-					Expect(s3fs.RemoveFiles(ctx, []string{key3, dir2})).NotTo(Succeed())
+					failed, err := s3fs.RemoveFiles(ctx, []string{key3, dir2})
+					Expect(err).To(HaveOccurred())
+					Expect(failed).To(BeEmpty())
 					By("checking folder path existence", func() {
 						exists, err := s3fs.Exists(ctx, dir2)
 						Expect(err).NotTo(HaveOccurred())
@@ -611,7 +616,9 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					"it should be nothing, like non-existent file removal, "+
 					"but other objects should be removed", func() {
 					dir := strings.TrimSuffix(dir2, "/")
-					Expect(s3fs.RemoveFiles(ctx, []string{key3, dir})).To(Succeed())
+					failed, err := s3fs.RemoveFiles(ctx, []string{key3, dir})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(failed).To(BeEmpty())
 					By("checking folder path existence", func() {
 						exists, err := s3fs.Exists(ctx, dir2) // as a directory path
 						Expect(err).NotTo(HaveOccurred())

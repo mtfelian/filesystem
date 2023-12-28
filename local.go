@@ -183,7 +183,7 @@ func (l *Local) Remove(ctx context.Context, name string) (err error) {
 }
 
 // RemoveFiles files given
-func (l *Local) RemoveFiles(ctx context.Context, names []string) (err error) {
+func (l *Local) RemoveFiles(ctx context.Context, names []string) (failed []string, err error) {
 	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
@@ -195,7 +195,7 @@ func (l *Local) RemoveFiles(ctx context.Context, names []string) (err error) {
 
 	for _, name := range names {
 		if err = l.Remove(ctx, name); err != nil {
-			return
+			failed = append(failed, name)
 		}
 	}
 	return

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -614,7 +613,7 @@ func (s *S3) Remove(ctx context.Context, name string) (err error) {
 
 // RemoveFiles removes multiple objects in batch by the given names.
 // Returns no error even if any object does not exists
-func (s *S3) RemoveFiles(ctx context.Context, names []string) (err error) {
+func (s *S3) RemoveFiles(ctx context.Context, names []string) (failed []string, err error) {
 	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
@@ -638,10 +637,10 @@ func (s *S3) RemoveFiles(ctx context.Context, names []string) (err error) {
 
 		var isEmpty bool
 		if isEmpty, err = s.IsEmptyPath(ctx, names[i]); err != nil {
-			return err
+			return nil, err
 		}
 		if !isEmpty {
-			return ErrDirectoryNotEmpty
+			return nil, ErrDirectoryNotEmpty
 		}
 		// if nameIsADirectoryPath && isEmpty
 		idx = append(idx, i)
@@ -658,10 +657,10 @@ func (s *S3) RemoveFiles(ctx context.Context, names []string) (err error) {
 	select {
 	case ore, more := <-objectRemoveErrorC: // if no error, more will be false
 		if more && ore.Err != nil {
-			return fmt.Errorf("%w at object %s", ore.Err, ore.ObjectName)
+			failed = append(failed, ore.ObjectName)
 		}
 	}
-	return nil
+	return failed, nil
 }
 
 // RemoveAll objects by the given filepath
