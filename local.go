@@ -312,17 +312,17 @@ func (l *Local) ReadDir(ctx context.Context, name string) (fi FilesInfo, err err
 		return
 	}
 
-	var fsfi []os.DirEntry
-	if fsfi, err = os.ReadDir(name); err != nil {
+	var dirEntries []os.DirEntry
+	if dirEntries, err = os.ReadDir(name); err != nil {
 		return
 	}
-	fi = make(FilesInfo, len(fsfi))
-	for i := range fsfi {
+	fi = make(FilesInfo, len(dirEntries))
+	for i := range dirEntries {
 		var finfo os.FileInfo
-		if finfo, err = fsfi[i].Info(); err != nil {
+		if finfo, err = dirEntries[i].Info(); err != nil {
 			return
 		}
-		fi[i] = NewLocalFileInfo(finfo, l.Join(name, fsfi[i].Name()))
+		fi[i] = NewLocalFileInfo(finfo, l.Join(name, dirEntries[i].Name()))
 	}
 	return
 }
