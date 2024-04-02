@@ -11,7 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var _ = FDescribe("Local FileSystem implementation", func() {
+var _ = Describe("Local FileSystem implementation", func() {
 	var (
 		fsLocal filesystem.FileSystem
 		ctx     context.Context
