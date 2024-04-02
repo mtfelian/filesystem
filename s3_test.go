@@ -66,7 +66,6 @@ var _ = Describe("S3 FileSystem implementation", func() {
 		}
 
 		fsLocal = filesystem.NewLocal()
-		ctx = context.Background()
 		const (
 			ctxKey   = "key"
 			ctxValue = "value"

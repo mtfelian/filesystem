@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -304,13 +303,26 @@ func (l *Local) ReadDir(ctx context.Context, name string) (fi FilesInfo, err err
 		} // else drop callback error
 	}()
 
-	var fsfi []fs.FileInfo
-	if fsfi, err = ioutil.ReadDir(name); err != nil {
+	var nameFi FileInfo
+	if nameFi, err = l.Stat(ctx, name); err != nil {
+		return
+	}
+	if !nameFi.IsDir() {
+		err = ErrNotADirectory
+		return
+	}
+
+	var fsfi []os.DirEntry
+	if fsfi, err = os.ReadDir(name); err != nil {
 		return
 	}
 	fi = make(FilesInfo, len(fsfi))
 	for i := range fsfi {
-		fi[i] = NewLocalFileInfo(fsfi[i], name)
+		var finfo os.FileInfo
+		if finfo, err = fsfi[i].Info(); err != nil {
+			return
+		}
+		fi[i] = NewLocalFileInfo(finfo, l.Join(name, fsfi[i].Name()))
 	}
 	return
 }
