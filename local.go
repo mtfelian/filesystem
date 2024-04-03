@@ -289,7 +289,7 @@ func (l *Local) Stat(ctx context.Context, name string) (fi FileInfo, err error) 
 	if osfi, err = os.Stat(name); err != nil {
 		return
 	}
-	return NewLocalFileInfo(osfi, name), nil
+	return NewLocalFileInfo(l, osfi, name), nil
 }
 
 // ReadDir with the name given
@@ -322,7 +322,7 @@ func (l *Local) ReadDir(ctx context.Context, name string) (fi FilesInfo, err err
 		if finfo, err = dirEntries[i].Info(); err != nil {
 			return
 		}
-		fi[i] = NewLocalFileInfo(finfo, l.Join(name, dirEntries[i].Name()))
+		fi[i] = NewLocalFileInfo(l, finfo, l.Join(name, dirEntries[i].Name()))
 	}
 	return
 }
@@ -352,7 +352,7 @@ func (l *Local) WalkDir(ctx context.Context, root string, walkDirFunc WalkDirFun
 		if err != nil {
 			return err
 		}
-		return walkDirFunc(path, LocalDirEntry{fi: NewLocalFileInfo(infoInfo, path)}, err)
+		return walkDirFunc(path, LocalDirEntry{fi: NewLocalFileInfo(l, infoInfo, path)}, err)
 	})
 }
 

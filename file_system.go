@@ -32,6 +32,7 @@ func (fsi FilesInfo) FullNames() []string {
 // FileInfo abstracts file information
 type FileInfo interface {
 	fs.FileInfo
+	FS() FileSystem
 	FullName() string
 }
 

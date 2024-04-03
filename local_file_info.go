@@ -8,14 +8,18 @@ import (
 
 // LocalFileInfo implements FileInfo
 type LocalFileInfo struct {
+	fs       FileSystem
 	fi       os.FileInfo
 	fullName string
 }
 
 // NewLocalFileInfo returns new LocalFileInfo object
-func NewLocalFileInfo(fi os.FileInfo, fullName string) LocalFileInfo {
-	return LocalFileInfo{fi: fi, fullName: fullName}
+func NewLocalFileInfo(fs *Local, fi os.FileInfo, fullName string) LocalFileInfo {
+	return LocalFileInfo{fs: fs, fi: fi, fullName: fullName}
 }
+
+// FS makes LocalFileInfo to implement FileInfo
+func (s LocalFileInfo) FS() FileSystem { return s.fs }
 
 // Name makes LocalFileInfo to implement FileInfo
 func (s LocalFileInfo) Name() string { return s.fi.Name() }
