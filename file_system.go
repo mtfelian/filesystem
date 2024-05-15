@@ -15,6 +15,7 @@ type File interface {
 	Truncate(int64) error
 	Sync() error
 	Name() string
+	FS() FileSystem
 }
 
 // FilesInfo is a slice of FileInfo

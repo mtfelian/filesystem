@@ -138,3 +138,6 @@ func (of *S3OpenedFile) LocalName() string { return of.localName }
 
 // Name returns S3 object name
 func (of *S3OpenedFile) Name() string { return of.objectName }
+
+// FS provides access to the associated FileSystem
+func (of *S3OpenedFile) FS() FileSystem { return of.s3 }

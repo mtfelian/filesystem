@@ -28,7 +28,9 @@ func (l *Local) Open(ctx context.Context, name string) (f File, err error) {
 		} // else drop callback error
 	}()
 
-	return os.Open(name)
+	var osFile *os.File
+	osFile, err = os.Open(name)
+	return &LocalFile{File: osFile, local: l}, err
 }
 
 // Create file in the FileSystem
@@ -45,7 +47,10 @@ func (l *Local) Create(ctx context.Context, name string) (f File, err error) {
 	if err = os.MkdirAll(l.Dir(name), 0777); err != nil {
 		return
 	}
-	return os.Create(name)
+
+	var osFile *os.File
+	osFile, err = os.Create(name)
+	return &LocalFile{File: osFile, local: l}, err
 }
 
 // OpenW opens file in the FileSystem for writing
@@ -62,7 +67,10 @@ func (l *Local) OpenW(ctx context.Context, name string) (f File, err error) {
 	if err = os.MkdirAll(l.Dir(name), 0777); err != nil {
 		return
 	}
-	return os.OpenFile(name, os.O_WRONLY, 0666)
+
+	var osFile *os.File
+	osFile, err = os.OpenFile(name, os.O_WRONLY, 0666)
+	return &LocalFile{File: osFile, local: l}, err
 }
 
 // ReadFile by name
