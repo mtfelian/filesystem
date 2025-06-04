@@ -276,6 +276,7 @@ func (s *S3) openFile(ctx context.Context, name string, fileMode int) (f File, e
 		if object, err = s.minioClient.GetObject(ctx, s.bucketName, name, minio.GetObjectOptions{}); err != nil {
 			return nil, err
 		}
+		defer object.Close()
 		if err = func() error {
 			localFile, err := s.openedFilesLocalFS.Create(ctx, localFileName)
 			if err != nil {
@@ -382,6 +383,7 @@ func (s *S3) ReadFile(ctx context.Context, name string) (b []byte, err error) {
 	if o, err = s.minioClient.GetObject(ctx, s.bucketName, name, minio.GetObjectOptions{}); err != nil {
 		return
 	}
+	defer o.Close()
 	return io.ReadAll(o)
 }
 
