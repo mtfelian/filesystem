@@ -121,7 +121,8 @@ func NewS3(ctx context.Context, p S3Params) (s3 *S3, err error) {
 	return
 }
 
-// Close attempts to forcibly close opened files and release resources
+// Close attempts to forcibly close opened files and release resources.
+// The FileSystem should not be used after calling this method.
 func (s *S3) Close() error {
 	close(s.cleaningC)
 	return nil
