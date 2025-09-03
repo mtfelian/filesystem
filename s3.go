@@ -56,6 +56,7 @@ type S3 struct {
 	openedFilesList    *S3OpenedFilesList
 	openedFilesTTL     time.Duration
 	openedFilesTempDir string
+	cleaningC          chan struct{}
 
 	emulateEmptyDirs     bool
 	listDirectoryEntries bool
@@ -86,6 +87,7 @@ func NewS3(ctx context.Context, p S3Params) (s3 *S3, err error) {
 		openedFilesTTL:     p.OpenedFilesTTL,
 		openedFilesLocalFS: NewLocal().(*Local),
 		openedFilesTempDir: p.OpenedFilesTempDir,
+		cleaningC:          make(chan struct{}),
 
 		emulateEmptyDirs:     p.EmulateEmptyDirs,
 		listDirectoryEntries: p.ListDirectoryEntries,
@@ -117,6 +119,12 @@ func NewS3(ctx context.Context, p S3Params) (s3 *S3, err error) {
 
 	go s3.openedFilesListCleaning()
 	return
+}
+
+// Close attempts to forcibly close opened files and release resources
+func (s *S3) Close() error {
+	close(s.cleaningC)
+	return nil
 }
 
 // Logger provides access to a logger
@@ -181,23 +189,38 @@ func (s *S3) normalizeName(name string) string {
 }
 
 func (s *S3) openedFilesListCleaning() {
-	for range time.NewTicker(s.openedFilesTTL).C {
+	cleanupFunc := func(all bool) {
 		var s3FilesToClose []*S3OpenedFile
 		func() {
 			s.OpenedFilesListLock()
 			defer s.OpenedFilesListUnlock()
 			for key, value := range s.openedFilesList.m {
-				if s.now().Before(value.Added.Add(s.openedFilesTTL)) { // should not be purged yet
+				if !all && s.now().Before(value.Added.Add(s.openedFilesTTL)) { // should not be purged yet
 					continue
 				}
 				s3FilesToClose = append(s3FilesToClose, s.openedFilesList.m[key].S3File)
 			}
 		}()
+		if len(s3FilesToClose) > 0 {
+			s.logger.Infof("S3.openedFilesListCleaning: closing %d file(s)", len(s3FilesToClose))
+		}
 		for _, s3File := range s3FilesToClose {
-			s.logger.Infof("openedFilesListCleaning: autoclosing file %q", s3File.localName)
+			s.logger.Infof("S3.openedFilesListCleaning: autoclosing file %q", s3File.localName)
 			if err := s3File.Close(); err != nil {
-				s.logger.Errorf("openedFilesListCleaning: failed to s3File.Close(): %v", err)
+				s.logger.Errorf("S3.openedFilesListCleaning: failed to s3File.Close(): %v", err)
 			}
+		}
+	}
+	t := time.NewTicker(s.openedFilesTTL)
+	for {
+		select {
+		case <-t.C:
+			cleanupFunc(false)
+		case <-s.cleaningC:
+			s.logger.Info("S3.openedFilesListCleaning doing last cleanup")
+			cleanupFunc(true)
+			s.logger.Info("S3.openedFilesListCleaning terminated")
+			return
 		}
 	}
 }
@@ -265,6 +288,7 @@ func (s *S3) openFile(ctx context.Context, name string, fileMode int) (f File, e
 		if err == nil {
 			return
 		}
+		// only if error occured later, so we are in defer:
 		s.openedFilesList.DeleteAndUnlockEntry(localFileName)
 		if f != nil {
 			_ = f.Close()

@@ -17,6 +17,9 @@ type Local struct{}
 // NewLocal returns a pointer to a new Local object
 func NewLocal() FileSystem { return &Local{} }
 
+// Close is a no-op here
+func (l *Local) Close() error { return nil }
+
 // Open file in the FileSystem
 func (l *Local) Open(ctx context.Context, name string) (f File, err error) {
 	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {

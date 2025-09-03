@@ -2,6 +2,7 @@ package filesystem_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"time"
 
@@ -27,8 +28,6 @@ var _ = Describe("recursive empty subtree cleaner", func() {
 		l := logrus.New()
 		l.SetLevel(logrus.DebugLevel)
 		logger = l
-		_ = logger
-
 		ctx = context.Background()
 	})
 
@@ -138,7 +137,14 @@ var _ = Describe("recursive empty subtree cleaner", func() {
 				return nil
 			})
 
-			s3fs, err = filesystem.NewS3(ctx, s3Params)
+			const attempts = 10
+			const delay = time.Second
+			for i := 1; i <= attempts; i++ {
+				if s3fs, err = filesystem.NewS3(ctx, s3Params); err != nil {
+					fmt.Printf(">>>>> waiting for minio startup... attempt %d/%d\n", i, attempts)
+					time.Sleep(delay)
+				}
+			}
 			Expect(err).NotTo(HaveOccurred())
 
 			s3, ok := s3fs.(*filesystem.S3)

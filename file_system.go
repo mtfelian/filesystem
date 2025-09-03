@@ -54,6 +54,7 @@ type FileNameData struct {
 
 // FileSystem abstracts a file system
 type FileSystem interface {
+	Close() error // that closes the FileSystem, not the File
 	Create(context.Context, string) (File, error)
 	Open(context.Context, string) (File, error)
 	OpenW(context.Context, string) (File, error)
