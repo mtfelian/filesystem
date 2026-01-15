@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"math"
 	"net/http"
 	"path"
 	"regexp"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/minio/minio-go/v7/pkg/lifecycle"
 	"github.com/sirupsen/logrus"
 )
 
@@ -50,6 +52,7 @@ type S3 struct {
 
 	useSSL      bool
 	bucketName  string
+	bucketTTL   time.Duration
 	minioClient *minio.Client
 
 	openedFilesLocalFS *Local
@@ -81,6 +84,7 @@ func NewS3(ctx context.Context, p S3Params) (s3 *S3, err error) {
 		secretKey:  p.SecretKey,
 		useSSL:     p.UseSSL,
 		bucketName: p.BucketName,
+		bucketTTL:  p.BucketTTL,
 		logger:     p.Logger,
 
 		openedFilesList:    NewS3OpenedFilesList(),
@@ -106,10 +110,17 @@ func NewS3(ctx context.Context, p S3Params) (s3 *S3, err error) {
 		return
 	}
 	if !exists {
-		err = s3.minioClient.MakeBucket(ctx, s3.bucketName, minio.MakeBucketOptions{
+		if err = s3.minioClient.MakeBucket(ctx, s3.bucketName, minio.MakeBucketOptions{
 			Region:        s3.region,
 			ObjectLocking: false,
-		})
+		}); err != nil {
+			return
+		}
+	}
+	if s3.bucketTTL > 0 {
+		if err = s3.SetBucketTTL(ctx, s3.bucketTTL); err != nil {
+			return
+		}
 	}
 	if s3.emulateEmptyDirs {
 		if err = s3.putStubObject(ctx, ""); err != nil {
@@ -119,6 +130,110 @@ func NewS3(ctx context.Context, p S3Params) (s3 *S3, err error) {
 
 	go s3.openedFilesListCleaning()
 	return
+}
+
+func isNoLifecycleConfig(err error) bool {
+	if err == nil {
+		return false
+	}
+	resp := minio.ToErrorResponse(err)
+	return resp.Code == "NoSuchLifecycleConfiguration" || resp.Code == "NoSuchBucketLifecycle"
+}
+
+func (s *S3) SetBucketTTL(ctx context.Context, ttl time.Duration) error {
+	days := int(math.Ceil(ttl.Hours() / 24.0))
+	if days < 1 {
+		days = 1
+	}
+
+	cfg, err := s.minioClient.GetBucketLifecycle(ctx, s.bucketName)
+	if err != nil {
+		if isNoLifecycleConfig(err) {
+			cfg = lifecycle.NewConfiguration()
+		} else {
+			return err
+		}
+	}
+
+	const purgeAllVersionsRuleID = "ttl-purge-all-versions"
+	const expireDeleteMarkerRuleID = "ttl-expire-delete-marker"
+
+	rulePurge := lifecycle.Rule{
+		ID:         purgeAllVersionsRuleID,
+		Status:     "Enabled",
+		RuleFilter: lifecycle.Filter{}, // whole bucket; set Prefix if apply to a subtree
+		Expiration: lifecycle.Expiration{
+			Days:      lifecycle.ExpirationDays(days),
+			DeleteAll: lifecycle.ExpirationBoolean(true),
+		},
+	}
+
+	ruleDeleteMarker := lifecycle.Rule{
+		ID:         expireDeleteMarkerRuleID,
+		Status:     "Enabled",
+		RuleFilter: lifecycle.Filter{},
+		Expiration: lifecycle.Expiration{
+			DeleteMarker: lifecycle.ExpireDeleteMarker(true),
+		},
+	}
+
+	// find rule by ID
+	find := func(id string) (lifecycle.Rule, bool) {
+		for _, r := range cfg.Rules {
+			if r.ID == id {
+				return r, true
+			}
+		}
+		return lifecycle.Rule{}, false
+	}
+
+	// compare rules
+	eq := func(a, b lifecycle.Rule) bool {
+		if a.ID != b.ID || a.Status != b.Status {
+			return false
+		}
+
+		if !a.RuleFilter.IsNull() || !b.RuleFilter.IsNull() {
+			if a.RuleFilter.Prefix != b.RuleFilter.Prefix {
+				return false
+			}
+		}
+		
+		if a.Expiration.Days != b.Expiration.Days {
+			return false
+		}
+		if a.Expiration.DeleteAll != b.Expiration.DeleteAll {
+			return false
+		}
+		if a.Expiration.DeleteMarker != b.Expiration.DeleteMarker {
+			return false
+		}
+		return true
+	}
+
+	changed := false
+	upsert := func(expected lifecycle.Rule) {
+		if rule, ok := find(expected.ID); ok && eq(rule, expected) {
+			return // already correct
+		}
+		for i := range cfg.Rules {
+			if cfg.Rules[i].ID == expected.ID {
+				cfg.Rules[i] = expected
+				changed = true
+				return
+			}
+		}
+		cfg.Rules = append(cfg.Rules, expected)
+		changed = true
+	}
+
+	upsert(rulePurge)
+	upsert(ruleDeleteMarker)
+
+	if !changed {
+		return nil
+	}
+	return s.minioClient.SetBucketLifecycle(ctx, s.bucketName, cfg)
 }
 
 // Close attempts to forcibly close opened files and release resources.

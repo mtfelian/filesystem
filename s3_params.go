@@ -15,6 +15,7 @@ type S3Params struct {
 	SecretKey  string
 	UseSSL     bool
 	BucketName string
+	BucketTTL  time.Duration // it will be ceiled to days
 
 	OpenedFilesTTL     time.Duration
 	OpenedFilesTempDir string
