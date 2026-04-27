@@ -1,4 +1,4 @@
-FROM golang:1.25.0
+FROM golang:1.26.1
 WORKDIR '/github.com/mtfelian/filesystem'
 COPY go.* .
 RUN --mount=type=cache,target=/root/go/pkg/mod \

@@ -164,6 +164,52 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			Expect(exists).To(BeFalse())
 		})
 
+		It("checks exposing an owning provider", func() {
+			provider := s3fs.(*filesystem.S3).Provider()
+			Expect(provider).NotTo(BeNil())
+		})
+
+		It("checks idempotent close", func() {
+			Expect(s3fs.Close()).To(Succeed())
+			Expect(s3fs.Close()).To(Succeed())
+		})
+
+		It("checks returning another bucket filesystem from the same provider", func() {
+			const otherBucket = "test-bucket-other"
+			defer func() {
+				Expect(minioClient.RemoveBucketWithOptions(ctx, otherBucket, minio.RemoveBucketOptions{
+					ForceDelete: true,
+				})).To(Succeed())
+			}()
+
+			provider := s3fs.(*filesystem.S3).Provider()
+			Expect(provider.EnsureBucket(ctx, otherBucket, filesystem.S3BucketOptions{
+				CreateIfMissing:      true,
+				EmulateEmptyDirs:     true,
+				ListDirectoryEntries: true,
+			})).To(Succeed())
+
+			otherS3, err := provider.Bucket(ctx, otherBucket)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(otherS3.MinioClient()).To(Equal(minioClient))
+
+			Expect(otherS3.WriteFile(ctx, "/other.txt", []byte("other content"))).To(Succeed())
+			b, err := otherS3.ReadFile(ctx, "/other.txt")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(b).To(Equal([]byte("other content")))
+		})
+
+		It("checks rejecting conflicting options for an already ensured bucket", func() {
+			provider := s3fs.(*filesystem.S3).Provider()
+			err := provider.EnsureBucket(ctx, bucketName, filesystem.S3BucketOptions{
+				CreateIfMissing:      true,
+				BucketTTL:            time.Hour,
+				EmulateEmptyDirs:     true,
+				ListDirectoryEntries: true,
+			})
+			Expect(err).To(Equal(filesystem.ErrConflictingBucketOptions))
+		})
+
 		It("checks ReadFile on existing objects", func() {
 			for key, content := range keyToContent {
 				actualContent, err := s3fs.ReadFile(ctx, key)

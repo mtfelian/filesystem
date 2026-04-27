@@ -79,3 +79,9 @@ type FileSystem interface {
 	Ext(string) string
 	Base(string) string
 }
+
+// FileSystemProvider selects or creates FileSystem instances by name.
+type FileSystemProvider interface {
+	FileSystem(context.Context, string) (FileSystem, error)
+	Close() error
+}

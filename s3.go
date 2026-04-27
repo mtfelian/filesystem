@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/minio/minio-go/v7/pkg/lifecycle"
 	"github.com/sirupsen/logrus"
 )
@@ -44,6 +43,9 @@ var (
 
 // S3 implements FileSystem. The implementation is not concurrent-safe
 type S3 struct {
+	provider      *S3Provider
+	closeProvider bool
+
 	endpoint  string
 	region    string
 	accessKey string
@@ -59,13 +61,12 @@ type S3 struct {
 	openedFilesList    *S3OpenedFilesList
 	openedFilesTTL     time.Duration
 	openedFilesTempDir string
-	cleaningC          chan struct{}
 
 	emulateEmptyDirs     bool
 	listDirectoryEntries bool
 }
 
-// NewS3 returns a pointer to a new Local object
+// NewS3 returns a pointer to a new S3 object.
 func NewS3(ctx context.Context, p S3Params) (s3 *S3, err error) {
 	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
@@ -77,58 +78,37 @@ func NewS3(ctx context.Context, p S3Params) (s3 *S3, err error) {
 	}()
 
 	p.applyDefaults()
-	s3 = &S3{
-		endpoint:   p.Endpoint,
-		region:     p.Region,
-		accessKey:  p.AccessKey,
-		secretKey:  p.SecretKey,
-		useSSL:     p.UseSSL,
-		bucketName: p.BucketName,
-		bucketTTL:  p.BucketTTL,
-		logger:     p.Logger,
 
-		openedFilesList:    NewS3OpenedFilesList(),
-		openedFilesTTL:     p.OpenedFilesTTL,
-		openedFilesLocalFS: NewLocal().(*Local),
-		openedFilesTempDir: p.OpenedFilesTempDir,
-		cleaningC:          make(chan struct{}),
-
-		emulateEmptyDirs:     p.EmulateEmptyDirs,
-		listDirectoryEntries: p.ListDirectoryEntries,
-	}
-
-	if s3.minioClient, err = minio.New(s3.endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(s3.accessKey, s3.secretKey, ""),
-		Secure: s3.useSSL,
-		Region: s3.region,
-	}); err != nil {
+	provider, err := NewS3Provider(S3ProviderParams{
+		Endpoint:           p.Endpoint,
+		Region:             p.Region,
+		AccessKey:          p.AccessKey,
+		SecretKey:          p.SecretKey,
+		UseSSL:             p.UseSSL,
+		OpenedFilesTTL:     p.OpenedFilesTTL,
+		OpenedFilesTempDir: p.OpenedFilesTempDir,
+		Logger:             p.Logger,
+	})
+	if err != nil {
 		return
 	}
 
-	var exists bool
-	if exists, err = s3.minioClient.BucketExists(ctx, s3.bucketName); err != nil {
+	bucketOptions := S3BucketOptions{
+		CreateIfMissing:      true,
+		BucketTTL:            p.BucketTTL,
+		EmulateEmptyDirs:     p.EmulateEmptyDirs,
+		ListDirectoryEntries: p.ListDirectoryEntries,
+	}
+	if err = provider.EnsureBucket(ctx, p.BucketName, bucketOptions); err != nil {
+		_ = provider.Close()
 		return
 	}
-	if !exists {
-		if err = s3.minioClient.MakeBucket(ctx, s3.bucketName, minio.MakeBucketOptions{
-			Region:        s3.region,
-			ObjectLocking: false,
-		}); err != nil {
-			return
-		}
-	}
-	if s3.bucketTTL > 0 {
-		if err = s3.SetBucketTTL(ctx, s3.bucketTTL); err != nil {
-			return
-		}
-	}
-	if s3.emulateEmptyDirs {
-		if err = s3.putStubObject(ctx, ""); err != nil {
-			return s3, err
-		}
-	}
 
-	go s3.openedFilesListCleaning()
+	if s3, err = provider.Bucket(ctx, p.BucketName); err != nil {
+		_ = provider.Close()
+		return
+	}
+	s3.closeProvider = true
 	return
 }
 
@@ -141,6 +121,10 @@ func isNoLifecycleConfig(err error) bool {
 }
 
 func (s *S3) SetBucketTTL(ctx context.Context, ttl time.Duration) error {
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
+
 	days := int(math.Ceil(ttl.Hours() / 24.0))
 	if days < 1 {
 		days = 1
@@ -198,7 +182,7 @@ func (s *S3) SetBucketTTL(ctx context.Context, ttl time.Duration) error {
 				return false
 			}
 		}
-		
+
 		if a.Expiration.Days != b.Expiration.Days {
 			return false
 		}
@@ -239,7 +223,13 @@ func (s *S3) SetBucketTTL(ctx context.Context, ttl time.Duration) error {
 // Close attempts to forcibly close opened files and release resources.
 // The FileSystem should not be used after calling this method.
 func (s *S3) Close() error {
-	close(s.cleaningC)
+	if s == nil {
+		return nil
+	}
+	if s.closeProvider && s.provider != nil {
+		return s.provider.Close()
+	}
+	s.cleanupOpenedFiles(true)
 	return nil
 }
 
@@ -252,6 +242,9 @@ func (s *S3) SetListDirectoryEntries(v bool) { s.listDirectoryEntries = v }
 // MinioClient provides access to Minio Client, use mainly for tests
 func (s *S3) MinioClient() *minio.Client { return s.minioClient }
 
+// Provider provides access to the owning S3 provider.
+func (s *S3) Provider() *S3Provider { return s.provider }
+
 // OpenedFilesList provides access to opened files list, use mainly for tests
 func (s *S3) OpenedFilesList() *S3OpenedFilesList { return s.openedFilesList }
 
@@ -262,6 +255,22 @@ func (s *S3) OpenedFilesListLock() { s.openedFilesList.Lock() }
 func (s *S3) OpenedFilesListUnlock() { s.openedFilesList.Unlock() }
 
 func (s *S3) now() time.Time { return time.Now() }
+
+func (s *S3) ensureOpen() error {
+	if s == nil {
+		return ErrFileSystemClosed
+	}
+	if s.provider != nil && s.provider.isClosed() {
+		return ErrFileSystemClosed
+	}
+	return nil
+}
+
+func (s *S3) applyBucketOptions(opts S3BucketOptions) {
+	s.bucketTTL = opts.BucketTTL
+	s.emulateEmptyDirs = opts.EmulateEmptyDirs
+	s.listDirectoryEntries = opts.ListDirectoryEntries
+}
 
 var driveLetterRegexp = regexp.MustCompile(`^[A-Za-z?]:`)
 
@@ -304,46 +313,36 @@ func (s *S3) normalizeName(name string) string {
 	return name
 }
 
-func (s *S3) openedFilesListCleaning() {
-	cleanupFunc := func(all bool) {
-		var s3FilesToClose []*S3OpenedFile
-		func() {
-			s.OpenedFilesListLock()
-			defer s.OpenedFilesListUnlock()
-			for key, value := range s.openedFilesList.m {
-				if !all && s.now().Before(value.Added.Add(s.openedFilesTTL)) { // should not be purged yet
-					continue
-				}
-				s3FilesToClose = append(s3FilesToClose, s.openedFilesList.m[key].S3File)
+func (s *S3) cleanupOpenedFiles(all bool) {
+	var s3FilesToClose []*S3OpenedFile
+	func() {
+		s.OpenedFilesListLock()
+		defer s.OpenedFilesListUnlock()
+		for key, value := range s.openedFilesList.m {
+			if !all && s.now().Before(value.Added.Add(s.openedFilesTTL)) { // should not be purged yet
+				continue
 			}
-		}()
-		if len(s3FilesToClose) > 0 {
-			s.logger.Infof("S3.openedFilesListCleaning: closing %d file(s)", len(s3FilesToClose))
+			s3FilesToClose = append(s3FilesToClose, s.openedFilesList.m[key].S3File)
 		}
-		for _, s3File := range s3FilesToClose {
-			s.logger.Infof("S3.openedFilesListCleaning: autoclosing file %q", s3File.localName)
-			if err := s3File.Close(); err != nil {
-				s.logger.Errorf("S3.openedFilesListCleaning: failed to s3File.Close(): %v", err)
-			}
-		}
+	}()
+	if len(s3FilesToClose) > 0 {
+		s.logger.Infof("S3.cleanupOpenedFiles: closing %d file(s)", len(s3FilesToClose))
 	}
-	t := time.NewTicker(s.openedFilesTTL)
-	for {
-		select {
-		case <-t.C:
-			cleanupFunc(false)
-		case <-s.cleaningC:
-			s.logger.Info("S3.openedFilesListCleaning doing last cleanup")
-			cleanupFunc(true)
-			s.logger.Info("S3.openedFilesListCleaning terminated")
-			return
+	for _, s3File := range s3FilesToClose {
+		s.logger.Infof("S3.cleanupOpenedFiles: autoclosing file %q", s3File.localName)
+		if err := s3File.Close(); err != nil {
+			s.logger.Errorf("S3.cleanupOpenedFiles: failed to s3File.Close(): %v", err)
 		}
 	}
 }
 
 // TempFileName converts file name to a temporary file name
 func (s *S3) TempFileName(name string) string {
-	return s.openedFilesLocalFS.Join(s.openedFilesTempDir, TempDir, strings.ReplaceAll(name, "/", "__"))
+	return s.openedFilesLocalFS.Join(
+		s.openedFilesTempDir,
+		TempDir,
+		s.bucketName+"_"+strings.ReplaceAll(name, "/", "__"),
+	)
 }
 
 const (
@@ -365,8 +364,17 @@ func (s *S3) openFile(ctx context.Context, name string, fileMode int) (f File, e
 	if fileMode > fileModeWrite || fileMode < fileModeOpen {
 		return nil, ErrUnknownFileMode
 	}
+	if err = s.ensureOpen(); err != nil {
+		return nil, err
+	}
 	if name = s.normalizeName(name); s.nameIsADirectory(name) {
 		return nil, ErrCantOpenS3Directory
+	}
+
+	if s.provider != nil {
+		if err = s.provider.startCleaner(); err != nil {
+			return nil, err
+		}
 	}
 
 	localFileName := s.TempFileName(name)
@@ -518,6 +526,10 @@ func (s *S3) ReadFile(ctx context.Context, name string) (b []byte, err error) {
 		} // else drop callback error
 	}()
 
+	if err = s.ensureOpen(); err != nil {
+		return
+	}
+
 	name = s.normalizeName(name)
 	var o *minio.Object
 	if o, err = s.minioClient.GetObject(ctx, s.bucketName, name, minio.GetObjectOptions{}); err != nil {
@@ -529,6 +541,10 @@ func (s *S3) ReadFile(ctx context.Context, name string) (b []byte, err error) {
 
 // WriteFile by it's name to the client's bucket
 func (s *S3) WriteFile(ctx context.Context, name string, b []byte) (err error) {
+	return s.writeFile(ctx, name, b, false)
+}
+
+func (s *S3) writeFile(ctx context.Context, name string, b []byte, allowDuringClose bool) (err error) {
 	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
@@ -538,10 +554,16 @@ func (s *S3) WriteFile(ctx context.Context, name string, b []byte) (err error) {
 		} // else drop callback error
 	}()
 
+	if !allowDuringClose {
+		if err = s.ensureOpen(); err != nil {
+			return
+		}
+	}
+
 	name = s.normalizeName(name)
 	if s.emulateEmptyDirs {
 		if dir := s.Dir(name); dir != "." && dir != "/" {
-			if err = s.MakePathAll(ctx, dir); err != nil {
+			if err = s.makePathAll(ctx, dir, allowDuringClose); err != nil {
 				return
 			}
 		}
@@ -561,6 +583,10 @@ func (s *S3) WriteFiles(ctx context.Context, f []FileNameData) (err error) {
 			err = errcb
 		} // else drop callback error
 	}()
+
+	if err = s.ensureOpen(); err != nil {
+		return
+	}
 
 	snowBallC := make(chan minio.SnowballObject)
 	for i, el := range f {
@@ -599,6 +625,10 @@ func (s *S3) Reader(ctx context.Context, name string) (r io.ReadCloser, err erro
 		} // else drop callback error
 	}()
 
+	if err = s.ensureOpen(); err != nil {
+		return
+	}
+
 	name = s.normalizeName(name)
 	return s.minioClient.GetObject(ctx, s.bucketName, name, minio.GetObjectOptions{})
 }
@@ -614,6 +644,10 @@ func (s *S3) Count(ctx context.Context, name string, recursive bool,
 			err = errcb
 		} // else drop callback error
 	}()
+
+	if err = s.ensureOpen(); err != nil {
+		return
+	}
 
 	name = s.normalizeName(name)
 
@@ -652,6 +686,10 @@ func (s *S3) Exists(ctx context.Context, name string) (e bool, err error) {
 		} // else drop callback error
 	}()
 
+	if err = s.ensureOpen(); err != nil {
+		return
+	}
+
 	name = s.normalizeName(name)
 	if !s.nameIsADirectoryPath(name) { // not a folder
 		_, err = s.minioClient.StatObject(ctx, s.bucketName, name, minio.StatObjectOptions{})
@@ -673,7 +711,11 @@ func (s *S3) Exists(ctx context.Context, name string) (e bool, err error) {
 	return count > 0, err
 }
 
-func (s *S3) putStubObject(ctx context.Context, name string) (err error) {
+func (s *S3) putStubObject(ctx context.Context, name string) error {
+	return s.putStubObjectInternal(ctx, name, false)
+}
+
+func (s *S3) putStubObjectInternal(ctx context.Context, name string, allowDuringClose bool) (err error) {
 	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
@@ -683,9 +725,16 @@ func (s *S3) putStubObject(ctx context.Context, name string) (err error) {
 		} // else drop callback error
 	}()
 
+	if !allowDuringClose {
+		if err = s.ensureOpen(); err != nil {
+			return
+		}
+	}
+
 	name = s.nameToStub(name)
-	_, err = s.minioClient.PutObject(ctx, s.bucketName, name, strings.NewReader(DirStubFileContent),
-		int64(len(DirStubFileContent)), minio.PutObjectOptions{
+	content := []byte(DirStubFileContent)
+	_, err = s.minioClient.PutObject(ctx, s.bucketName, name, bytes.NewReader(content),
+		int64(len(content)), minio.PutObjectOptions{
 			DisableMultipart: true,
 			ContentType:      "text/plain",
 		})
@@ -696,6 +745,15 @@ func (s *S3) putStubObject(ctx context.Context, name string) (err error) {
 // we create a small file in it.
 // refer to: https://github.com/minio/minio/issues/3555, https://github.com/minio/minio/issues/2423
 func (s *S3) MakePathAll(ctx context.Context, name string) (err error) {
+	return s.makePathAll(ctx, name, false)
+}
+
+func (s *S3) makePathAll(ctx context.Context, name string, allowDuringClose bool) (err error) {
+	if !allowDuringClose {
+		if err = s.ensureOpen(); err != nil {
+			return
+		}
+	}
 	if !s.emulateEmptyDirs { // if no empty dirs allowed just do nothing
 		return
 	}
@@ -712,7 +770,7 @@ func (s *S3) MakePathAll(ctx context.Context, name string) (err error) {
 	name = s.normalizeName(name)
 
 	for ; name != "/"; name = s.Dir(name) {
-		if err = s.putStubObject(ctx, name); err != nil {
+		if err = s.putStubObjectInternal(ctx, name, allowDuringClose); err != nil {
 			return
 		}
 	}
@@ -729,6 +787,10 @@ func (s *S3) Remove(ctx context.Context, name string) (err error) {
 			err = errcb
 		} // else drop callback error
 	}()
+
+	if err = s.ensureOpen(); err != nil {
+		return
+	}
 
 	name = s.normalizeName(name)
 	name = s.stubToDir(name)           // if stub, convert to dir with trailing '/'
@@ -764,6 +826,10 @@ func (s *S3) RemoveFiles(ctx context.Context, names []string) (failed []string, 
 			err = errcb
 		} // else drop callback error
 	}()
+
+	if err = s.ensureOpen(); err != nil {
+		return
+	}
 
 	objectInfoC := make(chan minio.ObjectInfo)
 	idx := make([]int, 0, len(names))
@@ -816,6 +882,10 @@ func (s *S3) RemoveAll(ctx context.Context, name string) (err error) {
 		} // else drop callback error
 	}()
 
+	if err = s.ensureOpen(); err != nil {
+		return
+	}
+
 	name = s.normalizeName(name)
 	ctx1, cancel1 := context.WithCancel(ctx)
 	defer cancel1()
@@ -860,6 +930,10 @@ func (s *S3) IsEmptyPath(ctx context.Context, name string) (e bool, err error) {
 		} // else drop callback error
 	}()
 
+	if err = s.ensureOpen(); err != nil {
+		return
+	}
+
 	name = s.normalizeName(name)
 	name = s.nameToDir(name)
 
@@ -903,6 +977,10 @@ func (s *S3) PreparePath(ctx context.Context, name string) (_ string, err error)
 		} // else drop callback error
 	}()
 
+	if err = s.ensureOpen(); err != nil {
+		return
+	}
+
 	name = s.normalizeName(name)
 	if !s.emulateEmptyDirs { // if no empty dirs allowed just do nothing
 		return name, nil
@@ -927,6 +1005,10 @@ func (s *S3) Rename(ctx context.Context, from string, to string) (err error) {
 			err = errcb
 		} // else drop callback error
 	}()
+
+	if err = s.ensureOpen(); err != nil {
+		return
+	}
 
 	if from, to = s.normalizeName(from), s.normalizeName(to); from == to {
 		return
@@ -1000,6 +1082,10 @@ func (s *S3) Stat(ctx context.Context, name string) (fi FileInfo, err error) {
 		} // else drop callback error
 	}()
 
+	if err = s.ensureOpen(); err != nil {
+		return
+	}
+
 	name = s.normalizeName(name)
 	if s.nameIsADirectoryPath(name) && s.emulateEmptyDirs {
 		var objectInfo minio.ObjectInfo
@@ -1042,6 +1128,10 @@ func (s *S3) ReadDir(ctx context.Context, name string) (fi FilesInfo, err error)
 			err = errcb
 		} // else drop callback error
 	}()
+
+	if err = s.ensureOpen(); err != nil {
+		return
+	}
 
 	name = s.normalizeName(name)
 	if !s.nameIsADirectory(name) {
@@ -1156,6 +1246,10 @@ func (s *S3) WalkDir(ctx context.Context, name string, walkDirFunc WalkDirFunc) 
 			err = errcb
 		} // else drop callback error
 	}()
+
+	if err = s.ensureOpen(); err != nil {
+		return
+	}
 
 	name = s.normalizeName(name)
 	var fi FileInfo

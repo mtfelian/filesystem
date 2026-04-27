@@ -55,7 +55,7 @@ func (of *S3OpenedFile) Sync() error { // todo does it work as intended?
 	if _, err := of.Seek(offset, io.SeekStart); err != nil {
 		return err
 	}
-	if err := of.s3.WriteFile(of.ctx, of.objectName, buf.Bytes()); err != nil { // write it into S3 storage
+	if err := of.s3.writeFile(of.ctx, of.objectName, buf.Bytes(), true); err != nil { // write it into S3 storage
 		return err
 	}
 	buf.Reset()
@@ -113,7 +113,7 @@ func (of *S3OpenedFile) Close() error {
 	}
 
 	if of.changed {
-		if err := of.s3.WriteFile(of.ctx, of.objectName, b); err != nil { // write it into S3 storage
+		if err := of.s3.writeFile(of.ctx, of.objectName, b, true); err != nil { // write it into S3 storage
 			return err
 		}
 		of.changed = false
