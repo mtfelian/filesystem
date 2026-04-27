@@ -364,7 +364,7 @@ var _ = Describe("S3Provider", func() {
 
 		Expect(provider.Close()).To(Succeed())
 
-		object, err := minioClient.GetObject(ctx, bucket, "/opened.txt", minio.GetObjectOptions{})
+		object, err := minioClient.GetObject(ctx, bucket, "opened.txt", minio.GetObjectOptions{})
 		Expect(err).NotTo(HaveOccurred())
 		defer object.Close()
 

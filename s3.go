@@ -285,6 +285,29 @@ func (s *S3) normalizeName(name string) string {
 	return name
 }
 
+func (s *S3) objectKey(name string) string {
+	return strings.TrimPrefix(s.normalizeName(name), "/")
+}
+
+func (s *S3) objectKeyFromNormalized(name string) string {
+	return strings.TrimPrefix(name, "/")
+}
+
+func (s *S3) logicalNameFromObjectKey(key string) string {
+	if key == "" {
+		return "/"
+	}
+	if strings.HasPrefix(key, "/") {
+		return key
+	}
+	return "/" + key
+}
+
+func (s *S3) logicalObjectInfo(oi minio.ObjectInfo) minio.ObjectInfo {
+	oi.Key = s.logicalNameFromObjectKey(oi.Key)
+	return oi
+}
+
 func (s *S3) cleanupOpenedFiles(all bool) {
 	var s3FilesToClose []*S3OpenedFile
 	func() {
@@ -397,7 +420,7 @@ func (s *S3) openFile(ctx context.Context, name string, fileMode int) (f File, e
 
 	if fileMode != fileModeCreate { // fileModeOpen or fileModeWrite, so we create local file from S3 object
 		var object *minio.Object
-		if object, err = s.minioClient.GetObject(ctx, s.bucketName, name, minio.GetObjectOptions{}); err != nil {
+		if object, err = s.minioClient.GetObject(ctx, s.bucketName, s.objectKeyFromNormalized(name), minio.GetObjectOptions{}); err != nil {
 			return nil, err
 		}
 		defer object.Close()
@@ -511,7 +534,7 @@ func (s *S3) ReadFile(ctx context.Context, name string) (b []byte, err error) {
 
 	name = s.normalizeName(name)
 	var o *minio.Object
-	if o, err = s.minioClient.GetObject(ctx, s.bucketName, name, minio.GetObjectOptions{}); err != nil {
+	if o, err = s.minioClient.GetObject(ctx, s.bucketName, s.objectKeyFromNormalized(name), minio.GetObjectOptions{}); err != nil {
 		return
 	}
 	defer o.Close()
@@ -547,7 +570,7 @@ func (s *S3) writeFile(ctx context.Context, name string, b []byte, allowDuringCl
 			}
 		}
 	}
-	_, err = s.minioClient.PutObject(ctx, s.bucketName, name, bytes.NewReader(b), int64(len(b)),
+	_, err = s.minioClient.PutObject(ctx, s.bucketName, s.objectKeyFromNormalized(name), bytes.NewReader(b), int64(len(b)),
 		minio.PutObjectOptions{ContentType: http.DetectContentType(b)})
 	return err
 }
@@ -582,7 +605,7 @@ func (s *S3) WriteFiles(ctx context.Context, f []FileNameData) (err error) {
 	go func() {
 		for i := range f {
 			snowBallC <- minio.SnowballObject{
-				Key:     f[i].Name,
+				Key:     s.objectKeyFromNormalized(f[i].Name),
 				Size:    int64(len(f[i].Data)),
 				ModTime: s.now(),
 				Content: bytes.NewReader(f[i].Data),
@@ -609,7 +632,7 @@ func (s *S3) Reader(ctx context.Context, name string) (r io.ReadCloser, err erro
 	}
 
 	name = s.normalizeName(name)
-	return s.minioClient.GetObject(ctx, s.bucketName, name, minio.GetObjectOptions{})
+	return s.minioClient.GetObject(ctx, s.bucketName, s.objectKeyFromNormalized(name), minio.GetObjectOptions{})
 }
 
 // Count returns count of items in a folder. May count in childs also if recursive param set to true.
@@ -634,10 +657,11 @@ func (s *S3) Count(ctx context.Context, name string, recursive bool,
 	ctx, cancel = context.WithCancel(ctx)
 	defer cancel()
 	for objectInfo := range s.minioClient.ListObjects(ctx, s.bucketName, minio.ListObjectsOptions{
-		Prefix:    strings.TrimPrefix(name, "/"),
+		Prefix:    s.objectKeyFromNormalized(name),
 		Recursive: recursive,
 	}) {
 		c++
+		objectInfo = s.logicalObjectInfo(objectInfo)
 		if countFunc != nil {
 			proceed, e := countFunc(objectInfo, c)
 			if !proceed {
@@ -671,7 +695,7 @@ func (s *S3) Exists(ctx context.Context, name string) (e bool, err error) {
 
 	name = s.normalizeName(name)
 	if !s.nameIsADirectoryPath(name) { // not a folder
-		_, err = s.minioClient.StatObject(ctx, s.bucketName, name, minio.StatObjectOptions{})
+		_, err = s.minioClient.StatObject(ctx, s.bucketName, s.objectKeyFromNormalized(name), minio.StatObjectOptions{})
 		switch {
 		case err == nil:
 			return true, nil
@@ -712,7 +736,7 @@ func (s *S3) putStubObjectInternal(ctx context.Context, name string, allowDuring
 
 	name = s.nameToStub(name)
 	content := []byte(DirStubFileContent)
-	_, err = s.minioClient.PutObject(ctx, s.bucketName, name, bytes.NewReader(content),
+	_, err = s.minioClient.PutObject(ctx, s.bucketName, s.objectKeyFromNormalized(name), bytes.NewReader(content),
 		int64(len(content)), minio.PutObjectOptions{
 			DisableMultipart: true,
 			ContentType:      "text/plain",
@@ -774,7 +798,7 @@ func (s *S3) Remove(ctx context.Context, name string) (err error) {
 	name = s.normalizeName(name)
 	name = s.stubToDir(name)           // if stub, convert to dir with trailing '/'
 	if !s.nameIsADirectoryPath(name) { // means was not a stub but a normal object name
-		return s.minioClient.RemoveObject(ctx, s.bucketName, name, minio.RemoveObjectOptions{})
+		return s.minioClient.RemoveObject(ctx, s.bucketName, s.objectKeyFromNormalized(name), minio.RemoveObjectOptions{})
 	}
 	// if nameIsADirectoryPath
 
@@ -791,7 +815,7 @@ func (s *S3) Remove(ctx context.Context, name string) (err error) {
 		return
 	}
 
-	return s.minioClient.RemoveObject(ctx, s.bucketName, s.nameToStub(name), minio.RemoveObjectOptions{})
+	return s.minioClient.RemoveObject(ctx, s.bucketName, s.objectKey(s.nameToStub(name)), minio.RemoveObjectOptions{})
 }
 
 // RemoveFiles removes multiple objects in batch by the given names.
@@ -817,7 +841,7 @@ func (s *S3) RemoveFiles(ctx context.Context, names []string) (failed []string, 
 		names[i] = s.stubToDir(names[i]) // if stub, convert to dir with trailing '/'
 
 		if !s.nameIsADirectoryPath(names[i]) || !s.emulateEmptyDirs { // means was not a stub but a normal object name
-			keys = append(keys, names[i])
+			keys = append(keys, s.objectKeyFromNormalized(names[i]))
 			continue
 		}
 		// if nameIsADirectoryPath
@@ -830,7 +854,7 @@ func (s *S3) RemoveFiles(ctx context.Context, names []string) (failed []string, 
 			return nil, ErrDirectoryNotEmpty
 		}
 		// if nameIsADirectoryPath && isEmpty
-		keys = append(keys, s.nameToStub(names[i]))
+		keys = append(keys, s.objectKey(s.nameToStub(names[i])))
 	}
 
 	go func() {
@@ -867,13 +891,13 @@ func (s *S3) RemoveAll(ctx context.Context, name string) (err error) {
 	name = s.normalizeName(name)
 	name = s.stubToDir(name)
 	if !s.nameIsADirectoryPath(name) {
-		return s.minioClient.RemoveObject(ctx, s.bucketName, name, minio.RemoveObjectOptions{})
+		return s.minioClient.RemoveObject(ctx, s.bucketName, s.objectKeyFromNormalized(name), minio.RemoveObjectOptions{})
 	}
 
 	ctx1, cancel1 := context.WithCancel(ctx)
 	defer cancel1()
 	objectInfoC := s.minioClient.ListObjects(ctx1, s.bucketName, minio.ListObjectsOptions{
-		Prefix:    strings.TrimPrefix(name, "/"),
+		Prefix:    s.objectKeyFromNormalized(name),
 		Recursive: true,
 	})
 
@@ -934,14 +958,14 @@ func (s *S3) IsEmptyPath(ctx context.Context, name string) (e bool, err error) {
 	defer cancel()
 	var i int
 	for objectInfo := range s.minioClient.ListObjects(ctx, s.bucketName, minio.ListObjectsOptions{
-		Prefix:    strings.TrimPrefix(name, "/"),
+		Prefix:    s.objectKeyFromNormalized(name),
 		Recursive: true,
 	}) {
 		if objectInfo.Err != nil {
 			return false, objectInfo.Err
 		}
 		i++
-		if (i > 1 || !s.nameIsADirectoryStub("/"+objectInfo.Key)) && s.emulateEmptyDirs ||
+		if (i > 1 || !s.nameIsADirectoryStub(s.logicalNameFromObjectKey(objectInfo.Key))) && s.emulateEmptyDirs ||
 			i > 0 && !s.emulateEmptyDirs {
 			return false, nil
 		}
@@ -1011,11 +1035,11 @@ func (s *S3) Rename(ctx context.Context, from string, to string) (err error) {
 			}
 		}
 		if _, err = s.minioClient.CopyObject(ctx,
-			minio.CopyDestOptions{Bucket: s.bucketName, Object: to},
-			minio.CopySrcOptions{Bucket: s.bucketName, Object: from}); err != nil {
+			minio.CopyDestOptions{Bucket: s.bucketName, Object: s.objectKeyFromNormalized(to)},
+			minio.CopySrcOptions{Bucket: s.bucketName, Object: s.objectKeyFromNormalized(from)}); err != nil {
 			return
 		}
-		return s.minioClient.RemoveObject(ctx, s.bucketName, from, minio.RemoveObjectOptions{})
+		return s.minioClient.RemoveObject(ctx, s.bucketName, s.objectKeyFromNormalized(from), minio.RemoveObjectOptions{})
 	}
 	// if s.nameIsADirectory(from)
 
@@ -1034,13 +1058,14 @@ func (s *S3) Rename(ctx context.Context, from string, to string) (err error) {
 	ctx1, cancel1 := context.WithCancel(ctx)
 	defer cancel1()
 	for objectInfo := range s.minioClient.ListObjects(ctx1, s.bucketName, minio.ListObjectsOptions{
-		Prefix:    strings.TrimPrefix(from, "/"),
+		Prefix:    s.objectKeyFromNormalized(from),
 		Recursive: true,
 	}) {
 		if objectInfo.Err != nil {
 			return objectInfo.Err
 		}
-		objTo := to + strings.TrimPrefix("/"+objectInfo.Key, from)
+		objFrom := s.logicalNameFromObjectKey(objectInfo.Key)
+		objTo := to + strings.TrimPrefix(objFrom, from)
 		if dir := s.Dir(objTo); dir != "." && dir != "/" {
 			if err = s.MakePathAll(ctx, dir); err != nil {
 				return
@@ -1048,7 +1073,7 @@ func (s *S3) Rename(ctx context.Context, from string, to string) (err error) {
 		}
 
 		if _, err = s.minioClient.CopyObject(ctx,
-			minio.CopyDestOptions{Bucket: s.bucketName, Object: objTo},
+			minio.CopyDestOptions{Bucket: s.bucketName, Object: s.objectKeyFromNormalized(objTo)},
 			minio.CopySrcOptions{Bucket: s.bucketName, Object: objectInfo.Key}); err != nil {
 			return
 		}
@@ -1078,7 +1103,7 @@ func (s *S3) Stat(ctx context.Context, name string) (fi FileInfo, err error) {
 	name = s.normalizeName(name)
 	if s.nameIsADirectoryPath(name) && s.emulateEmptyDirs {
 		var objectInfo minio.ObjectInfo
-		if objectInfo, err = s.minioClient.StatObject(ctx, s.bucketName, s.nameToStub(name),
+		if objectInfo, err = s.minioClient.StatObject(ctx, s.bucketName, s.objectKey(s.nameToStub(name)),
 			minio.StatObjectOptions{}); err != nil {
 			return
 		}
@@ -1101,9 +1126,10 @@ func (s *S3) Stat(ctx context.Context, name string) (fi FileInfo, err error) {
 	// if (!s.nameIsADirectory(name) || !s.emulateEmptyDirs) && !s.nameIsADirectoryPath(name)
 
 	var objectInfo minio.ObjectInfo
-	if objectInfo, err = s.minioClient.StatObject(ctx, s.bucketName, name, minio.StatObjectOptions{}); err != nil {
+	if objectInfo, err = s.minioClient.StatObject(ctx, s.bucketName, s.objectKeyFromNormalized(name), minio.StatObjectOptions{}); err != nil {
 		return
 	}
+	objectInfo.Key = name
 	return NewS3FileInfo(s, objectInfo), nil
 }
 
@@ -1137,17 +1163,15 @@ func (s *S3) ReadDir(ctx context.Context, name string) (fi FilesInfo, err error)
 
 	// reading files
 	for objectInfo := range s.minioClient.ListObjects(ctx, s.bucketName, minio.ListObjectsOptions{
-		Prefix:    strings.TrimPrefix(name, "/"),
+		Prefix:    s.objectKeyFromNormalized(name),
 		Recursive: false,
 	}) {
 		if objectInfo.Err != nil {
 			return fi, objectInfo.Err
 		}
+		objectInfo = s.logicalObjectInfo(objectInfo)
 		if s.nameIsADirectory(objectInfo.Key) {
 			continue
-		}
-		if !strings.HasPrefix(objectInfo.Key, "/") { // add leading '/'
-			objectInfo.Key = "/" + objectInfo.Key
 		}
 		fi = append(fi, NewS3FileInfo(s, objectInfo))
 	}
@@ -1159,7 +1183,7 @@ func (s *S3) ReadDir(ctx context.Context, name string) (fi FilesInfo, err error)
 	// reading dir entries
 
 	for objectInfo := range s.minioClient.ListObjects(ctx, s.bucketName, minio.ListObjectsOptions{
-		Prefix:    strings.TrimPrefix(name, "/"),
+		Prefix:    s.objectKeyFromNormalized(name),
 		Recursive: true,
 	}) {
 		if objectInfo.Err != nil {
@@ -1168,7 +1192,8 @@ func (s *S3) ReadDir(ctx context.Context, name string) (fi FilesInfo, err error)
 
 		// only current level directories
 		var key string
-		parent := func() string { return s.Dir("/"+objectInfo.Key) + "/" }
+		objectName := s.logicalNameFromObjectKey(objectInfo.Key)
+		parent := func() string { return s.Dir(objectName) + "/" }
 		stillNotRoot := func() bool { return len(strings.TrimRight(key, "/")) > 0 }
 		upwards := func() string { return s.Dir(strings.TrimSuffix(key, "/")) + "/" }
 		for key = parent(); stillNotRoot(); key = upwards() {

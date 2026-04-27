@@ -207,6 +207,22 @@ var _ = Describe("Local FileSystem implementation", func() {
 			})
 		})
 
+		Describe("Rename", func() {
+			It("creates missing destination parent directories", func() {
+				target := fsLocal.Join(dir0, "renamed", "nested", "1.txt")
+
+				Expect(fsLocal.Rename(ctx, fullName1, target)).To(Succeed())
+
+				exists, err := fsLocal.Exists(ctx, fullName1)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(exists).To(BeFalse())
+
+				content, err := fsLocal.ReadFile(ctx, target)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(content).To(Equal([]byte(content1)))
+			})
+		})
+
 		Describe("PreparePath", func() {
 			It("returns Exists errors", func() {
 				before := filesystem.BeforeOperationCB()

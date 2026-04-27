@@ -459,6 +459,9 @@ func (l *Local) Rename(ctx context.Context, from, to string) (err error) {
 	if filepath.Clean(physicalFrom) == filepath.Clean(physicalTo) {
 		return
 	}
+	if err = os.MkdirAll(filepath.Dir(physicalTo), 0777); err != nil {
+		return err
+	}
 	return os.Rename(physicalFrom, physicalTo)
 }
 
