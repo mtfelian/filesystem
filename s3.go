@@ -46,10 +46,9 @@ var (
 
 // S3 implements FileSystem. The implementation is not concurrent-safe
 type S3 struct {
-	provider      *S3Provider
-	closeProvider bool
-	closeMu       sync.Mutex
-	closed        bool
+	provider *S3Provider
+	closeMu  sync.Mutex
+	closed   bool
 
 	endpoint  string
 	region    string
@@ -69,52 +68,6 @@ type S3 struct {
 
 	emulateEmptyDirs     bool
 	listDirectoryEntries bool
-}
-
-// NewS3 returns a pointer to a new S3 object.
-func NewS3(ctx context.Context, p S3Params) (s3 *S3, err error) {
-	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
-		return
-	}
-	defer func() {
-		if errcb := invokeAfterOperationCB(ctx); err == nil {
-			err = errcb
-		} // else drop callback error
-	}()
-
-	p.applyDefaults()
-
-	provider, err := NewS3Provider(S3ProviderParams{
-		Endpoint:           p.Endpoint,
-		Region:             p.Region,
-		AccessKey:          p.AccessKey,
-		SecretKey:          p.SecretKey,
-		UseSSL:             p.UseSSL,
-		OpenedFilesTTL:     p.OpenedFilesTTL,
-		OpenedFilesTempDir: p.OpenedFilesTempDir,
-		Logger:             p.Logger,
-	})
-	if err != nil {
-		return
-	}
-
-	bucketOptions := S3BucketOptions{
-		CreateIfMissing:      true,
-		BucketTTL:            p.BucketTTL,
-		EmulateEmptyDirs:     p.EmulateEmptyDirs,
-		ListDirectoryEntries: p.ListDirectoryEntries,
-	}
-	if err = provider.EnsureBucket(ctx, p.BucketName, bucketOptions); err != nil {
-		_ = provider.Close()
-		return
-	}
-
-	if s3, err = provider.Bucket(ctx, p.BucketName); err != nil {
-		_ = provider.Close()
-		return
-	}
-	s3.closeProvider = true
-	return
 }
 
 func isNoLifecycleConfig(err error) bool {
@@ -239,9 +192,6 @@ func (s *S3) Close() error {
 	s.closed = true
 	s.closeMu.Unlock()
 
-	if s.closeProvider && s.provider != nil {
-		return s.provider.Close()
-	}
 	s.cleanupOpenedFiles(true)
 	if s.provider != nil {
 		s.provider.removeBucket(s.bucketName, s)

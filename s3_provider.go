@@ -32,11 +32,11 @@ type S3Provider struct {
 
 	defaultBucketOptions S3BucketOptions
 
-	mu      sync.Mutex
-	buckets map[string]*S3
-	ensured map[string]S3BucketOptions
+	bucketsMu sync.Mutex
+	buckets   map[string]*S3
 
-	ensureMu sync.Mutex
+	ensured   map[string]S3BucketOptions
+	ensuredMu sync.Mutex
 
 	lifecycleMu    sync.Mutex
 	cleanerOnce    sync.Once
@@ -105,22 +105,22 @@ func (p *S3Provider) EnsureBucket(ctx context.Context, bucket string, opts S3Buc
 		return ErrFileSystemClosed
 	}
 
-	p.ensureMu.Lock()
-	defer p.ensureMu.Unlock()
+	p.ensuredMu.Lock()
+	defer p.ensuredMu.Unlock()
 
 	if p.isClosed() {
 		return ErrFileSystemClosed
 	}
 
-	p.mu.Lock()
+	p.bucketsMu.Lock()
 	if ensured, ok := p.ensured[bucket]; ok {
-		p.mu.Unlock()
+		p.bucketsMu.Unlock()
 		if bucketOptionsConflict(ensured, opts) {
 			return ErrConflictingBucketOptions
 		}
 		return nil
 	}
-	p.mu.Unlock()
+	p.bucketsMu.Unlock()
 
 	s3 := p.bucketWithOptions(bucket, opts)
 
@@ -150,12 +150,12 @@ func (p *S3Provider) EnsureBucket(ctx context.Context, bucket string, opts S3Buc
 		}
 	}
 
-	p.mu.Lock()
+	p.bucketsMu.Lock()
 	p.ensured[bucket] = opts
 	if existing := p.buckets[bucket]; existing != nil {
 		existing.applyBucketOptions(opts)
 	}
-	p.mu.Unlock()
+	p.bucketsMu.Unlock()
 	return nil
 }
 
@@ -181,8 +181,8 @@ func (p *S3Provider) Close() error {
 }
 
 func (p *S3Provider) bucket(bucket string) *S3 {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.bucketsMu.Lock()
+	defer p.bucketsMu.Unlock()
 
 	opts := p.defaultBucketOptions
 	if ensured, ok := p.ensured[bucket]; ok {
@@ -192,14 +192,14 @@ func (p *S3Provider) bucket(bucket string) *S3 {
 }
 
 func (p *S3Provider) bucketWithOptions(bucket string, opts S3BucketOptions) *S3 {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.bucketsMu.Lock()
+	defer p.bucketsMu.Unlock()
 	return p.bucketLocked(bucket, opts)
 }
 
 func (p *S3Provider) removeBucket(bucket string, s3 *S3) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.bucketsMu.Lock()
+	defer p.bucketsMu.Unlock()
 	if p.buckets[bucket] == s3 {
 		delete(p.buckets, bucket)
 	}
@@ -268,12 +268,12 @@ func (p *S3Provider) openedFilesListCleaning() {
 }
 
 func (p *S3Provider) cleanupOpenedFiles(all bool) {
-	p.mu.Lock()
+	p.bucketsMu.Lock()
 	buckets := make([]*S3, 0, len(p.buckets))
 	for _, s3 := range p.buckets {
 		buckets = append(buckets, s3)
 	}
-	p.mu.Unlock()
+	p.bucketsMu.Unlock()
 
 	for _, s3 := range buckets {
 		s3.cleanupOpenedFiles(all)

@@ -103,6 +103,7 @@ var _ = Describe("recursive empty subtree cleaner", func() {
 			fsLocal     filesystem.FileSystem
 			minioClient *minio.Client
 			s3Params    filesystem.S3Params
+			s3Provider  *filesystem.S3Provider
 		)
 		const (
 			region         = ""
@@ -153,7 +154,15 @@ var _ = Describe("recursive empty subtree cleaner", func() {
 			const attempts = 10
 			const delay = time.Second
 			for i := 1; i <= attempts; i++ {
-				if s3fs, err = filesystem.NewS3(ctx, s3Params); err != nil {
+				var s3 *filesystem.S3
+				if s3Provider != nil {
+					Expect(s3Provider.Close()).To(Succeed())
+					s3Provider = nil
+				}
+				if s3Provider, s3, err = newS3ForTest(ctx, s3Params); err == nil {
+					s3fs = s3
+					break
+				} else {
 					fmt.Printf(">>>>> waiting for minio startup... attempt %d/%d\n", i, attempts)
 					time.Sleep(delay)
 				}
@@ -168,6 +177,13 @@ var _ = Describe("recursive empty subtree cleaner", func() {
 		})
 
 		AfterEach(func() {
+			if s3fs != nil {
+				Expect(s3fs.Close()).To(Succeed())
+			}
+			if s3Provider != nil {
+				Expect(s3Provider.Close()).To(Succeed())
+			}
+
 			exists, err := fsLocal.Exists(ctx, filesystem.TempDir)
 			Expect(err).NotTo(HaveOccurred())
 			if exists {

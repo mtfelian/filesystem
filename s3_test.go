@@ -19,6 +19,39 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func newS3ForTest(ctx context.Context, p filesystem.S3Params) (*filesystem.S3Provider, *filesystem.S3, error) {
+	provider, err := filesystem.NewS3Provider(filesystem.S3ProviderParams{
+		Endpoint:           p.Endpoint,
+		Region:             p.Region,
+		AccessKey:          p.AccessKey,
+		SecretKey:          p.SecretKey,
+		UseSSL:             p.UseSSL,
+		OpenedFilesTTL:     p.OpenedFilesTTL,
+		OpenedFilesTempDir: p.OpenedFilesTempDir,
+		Logger:             p.Logger,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err = provider.EnsureBucket(ctx, p.BucketName, filesystem.S3BucketOptions{
+		CreateIfMissing:      true,
+		BucketTTL:            p.BucketTTL,
+		EmulateEmptyDirs:     p.EmulateEmptyDirs,
+		ListDirectoryEntries: p.ListDirectoryEntries,
+	}); err != nil {
+		_ = provider.Close()
+		return nil, nil, err
+	}
+
+	s3, err := provider.Bucket(ctx, p.BucketName)
+	if err != nil {
+		_ = provider.Close()
+		return nil, nil, err
+	}
+	return provider, s3, nil
+}
+
 var _ = Describe("S3 FileSystem implementation", func() {
 	var (
 		s3fs        filesystem.FileSystem
@@ -28,6 +61,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 		logger      logrus.FieldLogger
 		minioClient *minio.Client
 		s3Params    filesystem.S3Params
+		s3Provider  *filesystem.S3Provider
 	)
 	const (
 		region         = ""
@@ -86,6 +120,9 @@ var _ = Describe("S3 FileSystem implementation", func() {
 		if s3fs != nil {
 			Expect(s3fs.Close()).To(Succeed())
 		}
+		if s3Provider != nil {
+			Expect(s3Provider.Close()).To(Succeed())
+		}
 
 		exists, err := fsLocal.Exists(ctx, filesystem.TempDir)
 		Expect(err).NotTo(HaveOccurred())
@@ -121,7 +158,15 @@ var _ = Describe("S3 FileSystem implementation", func() {
 		const attempts = 10
 		const delay = time.Second
 		for i := 1; i <= attempts; i++ {
-			if s3fs, err = filesystem.NewS3(ctx, s3Params); err != nil {
+			var s3 *filesystem.S3
+			if s3Provider != nil {
+				Expect(s3Provider.Close()).To(Succeed())
+				s3Provider = nil
+			}
+			if s3Provider, s3, err = newS3ForTest(ctx, s3Params); err == nil {
+				s3fs = s3
+				break
+			} else {
 				fmt.Printf(">>>>> waiting for minio startup... attempt %d/%d\n", i, attempts)
 				time.Sleep(delay)
 			}
@@ -164,7 +209,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			Expect(exists).To(BeFalse())
 		})
 
-		It("checks exposing an owning provider", func() {
+		It("checks exposing a provider", func() {
 			provider := s3fs.(*filesystem.S3).Provider()
 			Expect(provider).NotTo(BeNil())
 		})
