@@ -104,10 +104,10 @@ var _ = Describe("recursive empty subtree cleaner", func() {
 			minioClient *minio.Client
 			s3Params    filesystem.S3Params
 			s3Provider  *filesystem.S3Provider
+			bucketName  string
 		)
 		const (
 			region         = ""
-			bucketName     = "test-bucket" // no underscores here!
 			accessKey      = "minioadmin"
 			secretKey      = "minioadmin"
 			endpointDocker = "minio:9000"
@@ -116,6 +116,8 @@ var _ = Describe("recursive empty subtree cleaner", func() {
 		)
 
 		BeforeEach(func() {
+			bucketName = uniqueTestBucketName("cleaner-bucket")
+
 			endpoint := endpointLocal
 			if utils.IsInDocker() {
 				endpoint = endpointDocker

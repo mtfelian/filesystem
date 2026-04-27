@@ -9,6 +9,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -18,6 +19,12 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
+
+var testBucketSequence atomic.Uint64
+
+func uniqueTestBucketName(prefix string) string {
+	return fmt.Sprintf("%s-%d-%d", prefix, time.Now().UnixNano(), testBucketSequence.Add(1))
+}
 
 func newS3ForTest(ctx context.Context, p filesystem.S3Params) (*filesystem.S3Provider, *filesystem.S3, error) {
 	provider, err := filesystem.NewS3Provider(filesystem.S3ProviderParams{
@@ -62,10 +69,10 @@ var _ = Describe("S3 FileSystem implementation", func() {
 		minioClient *minio.Client
 		s3Params    filesystem.S3Params
 		s3Provider  *filesystem.S3Provider
+		bucketName  string
 	)
 	const (
 		region         = ""
-		bucketName     = "test-bucket" // no underscores here!
 		noSuchBucket   = "wrong-bucket"
 		accessKey      = "minioadmin"
 		secretKey      = "minioadmin"
@@ -80,6 +87,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 		logger = l
 
 		ctx = context.Background()
+		bucketName = uniqueTestBucketName("test-bucket")
 
 		endpoint := endpointLocal
 		if utils.IsInDocker() {
@@ -220,7 +228,7 @@ var _ = Describe("S3 FileSystem implementation", func() {
 		})
 
 		It("checks returning another bucket filesystem from the same provider", func() {
-			const otherBucket = "test-bucket-other"
+			otherBucket := uniqueTestBucketName("test-bucket-other")
 			defer func() {
 				Expect(minioClient.RemoveBucketWithOptions(ctx, otherBucket, minio.RemoveBucketOptions{
 					ForceDelete: true,
