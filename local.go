@@ -33,6 +33,9 @@ func (l *Local) Open(ctx context.Context, name string) (f File, err error) {
 
 	var osFile *os.File
 	osFile, err = os.Open(name)
+	if err != nil {
+		return nil, err
+	}
 	return &LocalFile{File: osFile, local: l}, err
 }
 
@@ -53,6 +56,9 @@ func (l *Local) Create(ctx context.Context, name string) (f File, err error) {
 
 	var osFile *os.File
 	osFile, err = os.Create(name)
+	if err != nil {
+		return nil, err
+	}
 	return &LocalFile{File: osFile, local: l}, err
 }
 
@@ -73,6 +79,9 @@ func (l *Local) OpenW(ctx context.Context, name string) (f File, err error) {
 
 	var osFile *os.File
 	osFile, err = os.OpenFile(name, os.O_WRONLY, 0666)
+	if err != nil {
+		return nil, err
+	}
 	return &LocalFile{File: osFile, local: l}, err
 }
 
@@ -259,7 +268,10 @@ func (l *Local) PreparePath(ctx context.Context, name string) (absolutePath stri
 	}
 
 	var exists bool
-	if exists, err = l.Exists(ctx, absolutePath); !exists && err == nil {
+	if exists, err = l.Exists(ctx, absolutePath); err != nil {
+		return "", err
+	}
+	if !exists {
 		if err = l.MakePathAll(ctx, absolutePath); err != nil {
 			return "", err
 		}

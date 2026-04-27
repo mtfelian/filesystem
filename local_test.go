@@ -2,6 +2,7 @@ package filesystem_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -174,6 +175,39 @@ var _ = Describe("Local FileSystem implementation", func() {
 				Expect(fi).To(BeEmpty())
 				names := fi.FullNames()
 				Expect(names).To(BeEmpty())
+			})
+		})
+
+		Describe("Open errors", func() {
+			It("returns nil file when Open fails", func() {
+				f, err := fsLocal.Open(ctx, fsLocal.Join(dir0, "missing.txt"))
+				Expect(err).To(HaveOccurred())
+				Expect(f).To(BeNil())
+			})
+
+			It("returns nil file when OpenW fails", func() {
+				f, err := fsLocal.OpenW(ctx, fsLocal.Join(dir0, "missing.txt"))
+				Expect(err).To(HaveOccurred())
+				Expect(f).To(BeNil())
+			})
+		})
+
+		Describe("PreparePath", func() {
+			It("returns Exists errors", func() {
+				before := filesystem.BeforeOperationCB()
+				sentinel := errors.New("exists failed")
+				calls := 0
+				filesystem.SetBeforeOperationCB(func(ctx context.Context) (context.Context, error) {
+					calls++
+					if calls == 2 {
+						return ctx, sentinel
+					}
+					return before(ctx)
+				})
+				defer filesystem.SetBeforeOperationCB(before)
+
+				_, err := fsLocal.PreparePath(ctx, fsLocal.Join(dir0, "prepared"))
+				Expect(err).To(Equal(sentinel))
 			})
 		})
 	})

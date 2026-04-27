@@ -27,10 +27,22 @@ func (ofl *S3OpenedFilesList) Len() int {
 
 // AddAndLockEntry adds an entry to the list and locks it
 func (ofl *S3OpenedFilesList) AddAndLockEntry(localFileName string, entry *S3OpenedFilesListEntry) {
-	entry.Lock()
 	ofl.Lock()
 	defer ofl.Unlock()
+	entry.Lock()
 	ofl.m[localFileName] = entry
+}
+
+// GetOrAddAndLockEntry returns an existing entry or stores and locks a new one.
+func (ofl *S3OpenedFilesList) GetOrAddAndLockEntry(localFileName string, entry *S3OpenedFilesListEntry) (*S3OpenedFilesListEntry, bool) {
+	ofl.Lock()
+	defer ofl.Unlock()
+	if existing := ofl.m[localFileName]; existing != nil {
+		return existing, false
+	}
+	entry.Lock()
+	ofl.m[localFileName] = entry
+	return entry, true
 }
 
 // DeleteAndUnlockEntry deletes and unlocks an entry from the list if it exists

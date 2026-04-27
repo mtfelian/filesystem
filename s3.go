@@ -3,6 +3,8 @@ package filesystem
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"io/fs"
@@ -338,10 +340,12 @@ func (s *S3) cleanupOpenedFiles(all bool) {
 
 // TempFileName converts file name to a temporary file name
 func (s *S3) TempFileName(name string) string {
+	name = s.normalizeName(name)
+	sum := sha256.Sum256([]byte(name))
 	return s.openedFilesLocalFS.Join(
 		s.openedFilesTempDir,
 		TempDir,
-		s.bucketName+"_"+strings.ReplaceAll(name, "/", "__"),
+		s.bucketName+"_"+hex.EncodeToString(sum[:]),
 	)
 }
 
@@ -379,36 +383,34 @@ func (s *S3) openFile(ctx context.Context, name string, fileMode int) (f File, e
 
 	localFileName := s.TempFileName(name)
 
-	var s3OpenedFile *S3OpenedFilesListEntry
-	func() { // checking lock on entry
-		s.OpenedFilesListLock()
-		defer s.OpenedFilesListUnlock()
-		s3OpenedFile, _ = s.openedFilesList.Map()[localFileName]
-	}()
-
-	if s3OpenedFile != nil {
+	s3OpenedFile := &S3OpenedFilesListEntry{
+		ready: make(chan struct{}),
+		Added: s.now(),
+		S3File: &S3OpenedFile{
+			ctx:        ctx,
+			s3:         s,
+			underlying: nil, // to be written below
+			localName:  localFileName,
+			objectName: name,
+		},
+	}
+	if existing, added := s.openedFilesList.GetOrAddAndLockEntry(localFileName, s3OpenedFile); !added {
+		s3OpenedFile = existing
+		if s3OpenedFile.ready != nil {
+			select {
+			case <-s3OpenedFile.ready:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		if s3OpenedFile.openErr != nil {
+			return nil, s3OpenedFile.openErr
+		}
 		return s3OpenedFile.S3File, ErrFileAlreadyOpened
 	}
 
-	if err = s.openedFilesLocalFS.MakePathAll(ctx, s.openedFilesLocalFS.Dir(localFileName)); err != nil {
-		return nil, err
-	}
-
-	if s3OpenedFile == nil {
-		s3OpenedFile = &S3OpenedFilesListEntry{
-			Added: s.now(),
-			S3File: &S3OpenedFile{
-				ctx:        ctx,
-				s3:         s,
-				underlying: nil, // to be written below
-				localName:  localFileName,
-				objectName: name,
-			},
-		}
-	}
-	s.openedFilesList.AddAndLockEntry(localFileName, s3OpenedFile)
-
 	defer func() {
+		s3OpenedFile.MarkReady(err)
 		if err == nil {
 			return
 		}
@@ -418,6 +420,10 @@ func (s *S3) openFile(ctx context.Context, name string, fileMode int) (f File, e
 			_ = f.Close()
 		}
 	}()
+
+	if err = s.openedFilesLocalFS.MakePathAll(ctx, s.openedFilesLocalFS.Dir(localFileName)); err != nil {
+		return nil, err
+	}
 
 	if fileMode != fileModeCreate { // fileModeOpen or fileModeWrite, so we create local file from S3 object
 		var object *minio.Object
@@ -446,9 +452,12 @@ func (s *S3) openFile(ctx context.Context, name string, fileMode int) (f File, e
 	case fileModeWrite:
 		f, err = s.openedFilesLocalFS.OpenW(ctx, localFileName)
 	}
+	if err != nil {
+		return nil, err
+	}
 	s3OpenedFile.S3File.SetUnderlying(f)
 
-	return s3OpenedFile.S3File, err
+	return s3OpenedFile.S3File, nil
 }
 
 // Open file with given name in the client's bucket.
@@ -832,13 +841,13 @@ func (s *S3) RemoveFiles(ctx context.Context, names []string) (failed []string, 
 	}
 
 	objectInfoC := make(chan minio.ObjectInfo)
-	idx := make([]int, 0, len(names))
+	keys := make([]string, 0, len(names))
 	for i := range names {
 		names[i] = s.normalizeName(names[i])
 		names[i] = s.stubToDir(names[i]) // if stub, convert to dir with trailing '/'
 
 		if !s.nameIsADirectoryPath(names[i]) || !s.emulateEmptyDirs { // means was not a stub but a normal object name
-			idx = append(idx, i)
+			keys = append(keys, names[i])
 			continue
 		}
 		// if nameIsADirectoryPath
@@ -851,20 +860,19 @@ func (s *S3) RemoveFiles(ctx context.Context, names []string) (failed []string, 
 			return nil, ErrDirectoryNotEmpty
 		}
 		// if nameIsADirectoryPath && isEmpty
-		idx = append(idx, i)
+		keys = append(keys, s.nameToStub(names[i]))
 	}
 
 	go func() {
 		defer close(objectInfoC)
-		for _, i := range idx {
-			objectInfoC <- minio.ObjectInfo{Key: names[i]}
+		for _, key := range keys {
+			objectInfoC <- minio.ObjectInfo{Key: key}
 		}
 	}()
 
 	objectRemoveErrorC := s.minioClient.RemoveObjects(ctx, s.bucketName, objectInfoC, minio.RemoveObjectsOptions{})
-	select {
-	case ore, more := <-objectRemoveErrorC: // if no error, more will be false
-		if more && ore.Err != nil {
+	for ore := range objectRemoveErrorC {
+		if ore.Err != nil {
 			failed = append(failed, ore.ObjectName)
 		}
 	}
@@ -887,11 +895,16 @@ func (s *S3) RemoveAll(ctx context.Context, name string) (err error) {
 	}
 
 	name = s.normalizeName(name)
+	name = s.stubToDir(name)
+	if !s.nameIsADirectoryPath(name) {
+		return s.minioClient.RemoveObject(ctx, s.bucketName, name, minio.RemoveObjectOptions{})
+	}
+
 	ctx1, cancel1 := context.WithCancel(ctx)
 	defer cancel1()
 	objectInfoC := s.minioClient.ListObjects(ctx1, s.bucketName, minio.ListObjectsOptions{
 		Prefix:    strings.TrimPrefix(name, "/"),
-		Recursive: s.nameIsADirectory(name),
+		Recursive: true,
 	})
 
 	ctx2, cancel2 := context.WithCancel(ctx)
@@ -987,7 +1000,10 @@ func (s *S3) PreparePath(ctx context.Context, name string) (_ string, err error)
 	}
 
 	var exists bool
-	if exists, err = s.Exists(ctx, name); !exists && err == nil {
+	if exists, err = s.Exists(ctx, name); err != nil {
+		return "", err
+	}
+	if !exists {
 		if err = s.MakePathAll(ctx, name); err != nil {
 			return "", err
 		}

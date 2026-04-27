@@ -82,6 +82,19 @@ var _ = Describe("recursive empty subtree cleaner", func() {
 			}
 		})
 
+		It("checks BFS handles wide directory trees", func() {
+			const amount = 501
+			for i := 0; i < amount; i++ {
+				Expect(fs.MakePathAll(ctx, fs.Join(basePath, fmt.Sprintf("dir-%03d", i)))).To(Succeed())
+			}
+
+			quietLogger := logrus.New()
+			quietLogger.SetLevel(logrus.ErrorLevel)
+			count, err := filesystem.RemoveEmptyDirs(ctx, fs, quietLogger, basePath, filesystem.AlgoBFS)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(count).To(Equal(amount + 1))
+		})
+
 	})
 
 	Context("with S3", func() {

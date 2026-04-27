@@ -218,6 +218,11 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			}
 		})
 
+		It("uses distinct temp names for distinct object keys", func() {
+			s3 := s3fs.(*filesystem.S3)
+			Expect(s3.TempFileName("/a/b")).NotTo(Equal(s3.TempFileName("/a__b")))
+		})
+
 		Describe("Opening files in various modes, closing and autoclosing", func() {
 			var (
 				openedFilesList *filesystem.S3OpenedFilesList
@@ -250,6 +255,42 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				ExpectWithOffset(1, err).NotTo(HaveOccurred())
 				return exists
 			}
+
+			It("allows only one first opener for the same object", func() {
+				const amount = 16
+				const key = "/a/b/c_d/concurrent-create.txt"
+				start := make(chan struct{})
+				files := make([]filesystem.File, amount)
+				errs := make([]error, amount)
+
+				var wg sync.WaitGroup
+				wg.Add(amount)
+				for i := 0; i < amount; i++ {
+					i := i
+					go func() {
+						defer GinkgoRecover()
+						defer wg.Done()
+						<-start
+						files[i], errs[i] = s3fs.Create(ctx, key)
+					}()
+				}
+				close(start)
+				wg.Wait()
+
+				var opened []filesystem.File
+				for i := 0; i < amount; i++ {
+					switch errs[i] {
+					case nil:
+						opened = append(opened, files[i])
+					case filesystem.ErrFileAlreadyOpened:
+						Expect(files[i]).NotTo(BeNil())
+					default:
+						Fail(fmt.Sprintf("unexpected error at index %d: %v", i, errs[i]))
+					}
+				}
+				Expect(opened).To(HaveLen(1))
+				Expect(opened[0].Close()).To(Succeed())
+			})
 
 			It("checks opening not-existing file and it not hangs on second attempt (were a bug)", func() {
 				By("opening not existing object 1st time", func() {
@@ -576,6 +617,11 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				_, err := s3fs.Exists(ctx, strings.Repeat("1", 1025)) // name too long
 				Expect(err).To(HaveOccurred())
 			})
+
+			It("checks that PreparePath returns Exists errors", func() {
+				_, err := s3fs.PreparePath(ctx, strings.Repeat("1", 1025)) // name too long
+				Expect(err).To(HaveOccurred())
+			})
 		})
 
 		Describe("MakePathAll, Exists on empty folder", func() {
@@ -648,6 +694,27 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					Expect(err).NotTo(HaveOccurred())
 					Expect(exists).To(BeTrue())
 				})
+			})
+
+			It("checks batch removing an emulated empty directory", func() {
+				const emptyDir = "/empty/removefiles/"
+				Expect(s3fs.MakePathAll(ctx, emptyDir)).To(Succeed())
+
+				exists, err := s3fs.Exists(ctx, emptyDir)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(exists).To(BeTrue())
+
+				failed, err := s3fs.RemoveFiles(ctx, []string{emptyDir})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(failed).To(BeEmpty())
+
+				exists, err = s3fs.Exists(ctx, emptyDir)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(exists).To(BeFalse())
+
+				exists, err = s3fs.Exists(ctx, emptyDir+filesystem.DirStubFileName)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(exists).To(BeFalse())
 			})
 
 			Context("non-empty dir", func() {
@@ -785,6 +852,25 @@ var _ = Describe("S3 FileSystem implementation", func() {
 		})
 
 		Describe("RemoveAll, should be applied to folders but not objects", func() {
+			It("checks removing exact object does not remove same-prefix objects", func() {
+				const (
+					objectName = "/same-prefix"
+					neighbor   = "/same-prefix-neighbor"
+				)
+				Expect(s3fs.WriteFile(ctx, objectName, []byte("object"))).To(Succeed())
+				Expect(s3fs.WriteFile(ctx, neighbor, []byte("neighbor"))).To(Succeed())
+
+				Expect(s3fs.RemoveAll(ctx, objectName)).To(Succeed())
+
+				exists, err := s3fs.Exists(ctx, objectName)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(exists).To(BeFalse())
+
+				exists, err = s3fs.Exists(ctx, neighbor)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(exists).To(BeTrue())
+			})
+
 			It("checks removing existing object", func() {
 				Expect(s3fs.RemoveAll(ctx, key2)).To(Succeed())
 				By("checking that removed object no more exists", func() {

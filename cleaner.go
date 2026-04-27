@@ -40,13 +40,13 @@ func (esc *EmptySubtreeCleaner) bfs(ctx context.Context, basePath string) (*Node
 		return nil, err
 	}
 	root := &Node{Path: basePath}
-	const maxDepth = 500 // we assume that there will not be any dir with >500 depth
 
-	queue := make(chan *Node, maxDepth)
-	queue <- root
+	queue := []*Node{root}
 	for len(queue) > 0 {
-		data, ok := <-queue
-		if !ok || data == nil {
+		data := queue[0]
+		queue[0] = nil
+		queue = queue[1:]
+		if data == nil {
 			continue
 		}
 		// Iterate all the contents in the dir
@@ -67,7 +67,7 @@ func (esc *EmptySubtreeCleaner) bfs(ctx context.Context, basePath string) (*Node
 		for i, content := range contents {
 			data.Children[i] = &Node{Path: esc.FS.Join(data.Path, content.Name())}
 			if content.IsDir() {
-				queue <- data.Children[i]
+				queue = append(queue, data.Children[i])
 			}
 		}
 	}
