@@ -159,6 +159,47 @@ func (p *S3Provider) EnsureBucket(ctx context.Context, bucket string, opts S3Buc
 	return nil
 }
 
+// SetBucketTTL updates an existing bucket lifecycle TTL and reconciles provider options.
+func (p *S3Provider) SetBucketTTL(ctx context.Context, bucket string, ttl time.Duration) error {
+	if p == nil {
+		return ErrFileSystemClosed
+	}
+
+	p.ensuredMu.Lock()
+	defer p.ensuredMu.Unlock()
+
+	if p.isClosed() {
+		return ErrFileSystemClosed
+	}
+
+	exists, err := p.minioClient.BucketExists(ctx, bucket)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrS3BucketNotExists
+	}
+
+	p.bucketsMu.Lock()
+	opts := p.bucketOptionsLocked(bucket)
+	s3 := p.bucketLocked(bucket, opts)
+	p.bucketsMu.Unlock()
+
+	if err = s3.SetBucketTTL(ctx, ttl); err != nil {
+		return err
+	}
+
+	opts.BucketTTL = ttl
+
+	p.bucketsMu.Lock()
+	p.ensured[bucket] = opts
+	if existing := p.buckets[bucket]; existing != nil {
+		existing.applyBucketOptions(opts)
+	}
+	p.bucketsMu.Unlock()
+	return nil
+}
+
 // Close shuts down provider-owned background work and releases local resources.
 func (p *S3Provider) Close() error {
 	if p == nil {
@@ -195,6 +236,19 @@ func (p *S3Provider) bucketWithOptions(bucket string, opts S3BucketOptions) *S3 
 	p.bucketsMu.Lock()
 	defer p.bucketsMu.Unlock()
 	return p.bucketLocked(bucket, opts)
+}
+
+func (p *S3Provider) bucketOptionsLocked(bucket string) S3BucketOptions {
+	opts := p.defaultBucketOptions
+	if ensured, ok := p.ensured[bucket]; ok {
+		opts = ensured
+	}
+	if s3 := p.buckets[bucket]; s3 != nil {
+		opts.BucketTTL = s3.bucketTTL
+		opts.EmulateEmptyDirs = s3.emulateEmptyDirs
+		opts.ListDirectoryEntries = s3.listDirectoryEntries
+	}
+	return opts
 }
 
 func (p *S3Provider) removeBucket(bucket string, s3 *S3) {

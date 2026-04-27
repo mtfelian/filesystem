@@ -240,6 +240,57 @@ var _ = Describe("S3Provider", func() {
 		Expect(lifecycleTTL(bucketB)).To(Equal(2))
 	})
 
+	It("updates bucket TTL and reconciles ensured options", func() {
+		bucket := trackBucket("provider-update-ttl-bucket")
+
+		Expect(provider.EnsureBucket(ctx, bucket, filesystem.S3BucketOptions{
+			CreateIfMissing:      true,
+			BucketTTL:            24 * time.Hour,
+			EmulateEmptyDirs:     true,
+			ListDirectoryEntries: true,
+		})).To(Succeed())
+
+		s3, err := provider.Bucket(ctx, bucket)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(provider.SetBucketTTL(ctx, bucket, 48*time.Hour)).To(Succeed())
+		Expect(lifecycleTTL(bucket)).To(Equal(2))
+
+		reopened, err := provider.Bucket(ctx, bucket)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(reopened).To(BeIdenticalTo(s3))
+
+		Expect(provider.EnsureBucket(ctx, bucket, filesystem.S3BucketOptions{
+			CreateIfMissing:      true,
+			BucketTTL:            48 * time.Hour,
+			EmulateEmptyDirs:     true,
+			ListDirectoryEntries: true,
+		})).To(Succeed())
+
+		err = provider.EnsureBucket(ctx, bucket, filesystem.S3BucketOptions{
+			CreateIfMissing:      true,
+			BucketTTL:            24 * time.Hour,
+			EmulateEmptyDirs:     true,
+			ListDirectoryEntries: true,
+		})
+		Expect(err).To(Equal(filesystem.ErrConflictingBucketOptions))
+	})
+
+	It("does not cache failed TTL updates for missing buckets", func() {
+		bucket := trackBucket("provider-missing-ttl-bucket")
+
+		err := provider.SetBucketTTL(ctx, bucket, 24*time.Hour)
+		Expect(err).To(Equal(filesystem.ErrS3BucketNotExists))
+		Expect(bucketExists(bucket)).To(BeFalse())
+
+		Expect(provider.EnsureBucket(ctx, bucket, filesystem.S3BucketOptions{
+			CreateIfMissing:      true,
+			EmulateEmptyDirs:     true,
+			ListDirectoryEntries: true,
+		})).To(Succeed())
+		Expect(bucketExists(bucket)).To(BeTrue())
+	})
+
 	It("checks ensuring buckets on first lookup when default options request it", func() {
 		Expect(provider.Close()).To(Succeed())
 		provider = newProvider(filesystem.S3BucketOptions{
@@ -317,6 +368,9 @@ var _ = Describe("S3Provider", func() {
 		Expect(err).To(Equal(filesystem.ErrFileSystemClosed))
 
 		_, err = s3.ReadFile(ctx, "/before-close.txt")
+		Expect(err).To(Equal(filesystem.ErrFileSystemClosed))
+
+		err = provider.SetBucketTTL(ctx, bucket, time.Hour)
 		Expect(err).To(Equal(filesystem.ErrFileSystemClosed))
 
 		f, err := s3.Create(ctx, "/after-close.txt")
