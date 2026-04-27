@@ -81,6 +81,21 @@ var _ = Describe("S3Provider", func() {
 		}, 2*time.Second, 50*time.Millisecond).Should(BeNumerically("<=", limit))
 	}
 
+	waitForMinio := func() {
+		const attempts = 10
+		const delay = time.Second
+		var err error
+		for i := 1; i <= attempts; i++ {
+			_, err = minioClient.BucketExists(ctx, "provider-readiness-check")
+			if err == nil {
+				return
+			}
+			fmt.Printf(">>>>> waiting for minio startup... attempt %d/%d\n", i, attempts)
+			time.Sleep(delay)
+		}
+		Expect(err).NotTo(HaveOccurred())
+	}
+
 	BeforeEach(func() {
 		ctx = context.Background()
 		buckets = nil
@@ -101,6 +116,8 @@ var _ = Describe("S3Provider", func() {
 			Region: region,
 		})
 		Expect(err).NotTo(HaveOccurred())
+
+		waitForMinio()
 
 		provider = newProvider(filesystem.S3BucketOptions{})
 	})
