@@ -2,9 +2,13 @@ package filesystem
 
 import (
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 )
+
+// ErrFileSystemClosed means the filesystem or provider has been closed.
+var ErrFileSystemClosed = errors.New("filesystem is closed")
 
 // File abstracts a file
 type File interface {

@@ -14,7 +14,6 @@ import (
 var (
 	ErrConflictingBucketOptions = errors.New("conflicting S3 bucket options")
 	ErrS3BucketNotExists        = errors.New("s3 bucket does not exist")
-	ErrFileSystemClosed         = errors.New("filesystem is closed")
 )
 
 // S3Provider owns shared S3 resources and returns bucket-scoped filesystems.
