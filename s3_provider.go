@@ -198,6 +198,14 @@ func (p *S3Provider) bucketWithOptions(bucket string, opts S3BucketOptions) *S3 
 	return p.bucketLocked(bucket, opts)
 }
 
+func (p *S3Provider) removeBucket(bucket string, s3 *S3) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.buckets[bucket] == s3 {
+		delete(p.buckets, bucket)
+	}
+}
+
 func (p *S3Provider) bucketLocked(bucket string, opts S3BucketOptions) *S3 {
 	if s3 := p.buckets[bucket]; s3 != nil {
 		s3.applyBucketOptions(opts)

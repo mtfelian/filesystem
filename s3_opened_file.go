@@ -1,9 +1,7 @@
 package filesystem
 
 import (
-	"bytes"
 	"context"
-	"io"
 	"io/fs"
 	"sync"
 )
@@ -37,28 +35,21 @@ func (of *S3OpenedFile) SetUnderlying(f File) {
 }
 
 // Sync makes S3OpenedFile to implement File
-func (of *S3OpenedFile) Sync() error { // todo does it work as intended?
-	if err := of.Underlying().Sync(); err != nil { // does this work?
+func (of *S3OpenedFile) Sync() error {
+	underlying := of.Underlying()
+	if underlying == nil {
+		return fs.ErrClosed
+	}
+	if err := underlying.Sync(); err != nil {
 		return err
 	}
-	offset, err := of.Seek(0, io.SeekCurrent)
+	b, err := of.s3.openedFilesLocalFS.ReadFile(of.ctx, of.localName)
 	if err != nil {
 		return err
 	}
-	if _, err := of.Seek(0, io.SeekStart); err != nil {
+	if err := of.s3.writeFile(of.ctx, of.objectName, b, true); err != nil { // write it into S3 storage
 		return err
 	}
-	buf := bytes.NewBuffer([]byte{})
-	if _, err := io.Copy(buf, of.Underlying()); err != nil {
-		return err
-	}
-	if _, err := of.Seek(offset, io.SeekStart); err != nil {
-		return err
-	}
-	if err := of.s3.writeFile(of.ctx, of.objectName, buf.Bytes(), true); err != nil { // write it into S3 storage
-		return err
-	}
-	buf.Reset()
 	of.changed = false
 	return nil
 }

@@ -192,6 +192,21 @@ var _ = Describe("Local FileSystem implementation", func() {
 			})
 		})
 
+		Describe("RemoveFiles", func() {
+			It("reports failed paths without returning an order-dependent error", func() {
+				failed, err := fsLocal.RemoveFiles(ctx, []string{
+					fsLocal.Join(dir0, "missing.txt"),
+					fullName1,
+				})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(failed).To(Equal([]string{fsLocal.Join(dir0, "missing.txt")}))
+
+				exists, err := fsLocal.Exists(ctx, fullName1)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(exists).To(BeFalse())
+			})
+		})
+
 		Describe("PreparePath", func() {
 			It("returns Exists errors", func() {
 				before := filesystem.BeforeOperationCB()

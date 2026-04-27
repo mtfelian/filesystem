@@ -223,6 +223,21 @@ var _ = Describe("S3 FileSystem implementation", func() {
 			Expect(s3.TempFileName("/a/b")).NotTo(Equal(s3.TempFileName("/a__b")))
 		})
 
+		It("creates directory stubs from normalized WriteFiles names", func() {
+			Expect(s3fs.WriteFiles(ctx, []filesystem.FileNameData{{
+				Name: `C:\1\2\3.txt`,
+				Data: []byte("snowball content"),
+			}})).To(Succeed())
+
+			fi, err := s3fs.Stat(ctx, "/1/")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fi.IsDir()).To(BeTrue())
+
+			fi, err = s3fs.Stat(ctx, "/1/2/")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(fi.IsDir()).To(BeTrue())
+		})
+
 		Describe("Opening files in various modes, closing and autoclosing", func() {
 			var (
 				openedFilesList *filesystem.S3OpenedFilesList
@@ -518,6 +533,19 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					b, err := s3fs.ReadFile(ctx, key1)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(b).To(BeEquivalentTo([]byte("123 456 1")), "should be partially overwritten")
+				})
+
+				It("checks Sync on opened write-only local file", func() {
+					content := "sync data"
+					n, err := f.Write([]byte(content))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(n).To(Equal(len(content)))
+
+					Expect(f.Sync()).To(Succeed())
+
+					b, err := s3fs.ReadFile(ctx, key1)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(b).To(Equal([]byte(content)))
 				})
 
 				It("checks that Stat.Size and SeekEnd returns same size", func() {

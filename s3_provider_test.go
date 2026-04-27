@@ -324,6 +324,28 @@ var _ = Describe("S3Provider", func() {
 		Expect(err).To(Equal(filesystem.ErrFileSystemClosed))
 	})
 
+	It("checks closing a provider-owned bucket handle", func() {
+		bucket := trackBucket("provider-bucket-close-bucket")
+		Expect(provider.EnsureBucket(ctx, bucket, filesystem.S3BucketOptions{
+			CreateIfMissing: true,
+		})).To(Succeed())
+
+		s3, err := provider.Bucket(ctx, bucket)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(s3.WriteFile(ctx, "/before-close.txt", []byte("content"))).To(Succeed())
+
+		Expect(s3.Close()).To(Succeed())
+		Expect(s3.Close()).To(Succeed())
+
+		err = s3.WriteFile(ctx, "/after-close.txt", []byte("content"))
+		Expect(err).To(Equal(filesystem.ErrFileSystemClosed))
+
+		reopened, err := provider.Bucket(ctx, bucket)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(reopened).NotTo(BeIdenticalTo(s3))
+		Expect(reopened.WriteFile(ctx, "/after-reopen.txt", []byte("content"))).To(Succeed())
+	})
+
 	It("checks flushing opened files during provider close", func() {
 		bucket := trackBucket("provider-cleanup-bucket")
 		Expect(provider.EnsureBucket(ctx, bucket, filesystem.S3BucketOptions{

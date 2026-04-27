@@ -214,7 +214,7 @@ func (l *Local) RemoveFiles(ctx context.Context, names []string) (failed []strin
 	}()
 
 	for _, name := range names {
-		if err = l.Remove(ctx, name); err != nil {
+		if removeErr := l.Remove(ctx, name); removeErr != nil {
 			failed = append(failed, name)
 		}
 	}

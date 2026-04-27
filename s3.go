@@ -13,6 +13,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -47,6 +48,8 @@ var (
 type S3 struct {
 	provider      *S3Provider
 	closeProvider bool
+	closeMu       sync.Mutex
+	closed        bool
 
 	endpoint  string
 	region    string
@@ -228,10 +231,21 @@ func (s *S3) Close() error {
 	if s == nil {
 		return nil
 	}
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
+		return nil
+	}
+	s.closed = true
+	s.closeMu.Unlock()
+
 	if s.closeProvider && s.provider != nil {
 		return s.provider.Close()
 	}
 	s.cleanupOpenedFiles(true)
+	if s.provider != nil {
+		s.provider.removeBucket(s.bucketName, s)
+	}
 	return nil
 }
 
@@ -260,6 +274,12 @@ func (s *S3) now() time.Time { return time.Now() }
 
 func (s *S3) ensureOpen() error {
 	if s == nil {
+		return ErrFileSystemClosed
+	}
+	s.closeMu.Lock()
+	closed := s.closed
+	s.closeMu.Unlock()
+	if closed {
 		return ErrFileSystemClosed
 	}
 	if s.provider != nil && s.provider.isClosed() {
@@ -602,7 +622,7 @@ func (s *S3) WriteFiles(ctx context.Context, f []FileNameData) (err error) {
 		f[i].Name = s.normalizeName(el.Name)
 		if s.emulateEmptyDirs {
 			// todo may be optimized if many files have to be written in same subdir structure via a tree
-			if dir := s.Dir(el.Name); dir != "." && dir != "/" {
+			if dir := s.Dir(f[i].Name); dir != "." && dir != "/" {
 				if err = s.MakePathAll(ctx, dir); err != nil {
 					return
 				}
@@ -1067,6 +1087,9 @@ func (s *S3) Rename(ctx context.Context, from string, to string) (err error) {
 		Prefix:    strings.TrimPrefix(from, "/"),
 		Recursive: true,
 	}) {
+		if objectInfo.Err != nil {
+			return objectInfo.Err
+		}
 		objTo := to + strings.TrimPrefix("/"+objectInfo.Key, from)
 		if dir := s.Dir(objTo); dir != "." && dir != "/" {
 			if err = s.MakePathAll(ctx, dir); err != nil {
