@@ -100,6 +100,9 @@ func (p *S3Provider) Bucket(ctx context.Context, bucket string) (*S3, error) {
 }
 
 // EnsureBucket performs bucket provisioning once per provider lifetime.
+// BucketTTL > 0 applies lifecycle TTL. BucketTTL == 0 leaves an existing TTL
+// unchanged because zero is the default for unspecified options; use
+// SetBucketTTL(ctx, bucket, 0) to intentionally clear lifecycle TTL.
 func (p *S3Provider) EnsureBucket(ctx context.Context, bucket string, opts S3BucketOptions) error {
 	if p == nil {
 		return ErrFileSystemClosed
