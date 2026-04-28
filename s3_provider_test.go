@@ -10,6 +10,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/minio/minio-go/v7/pkg/lifecycle"
 	"github.com/mtfelian/filesystem"
 	"github.com/mtfelian/utils"
 	. "github.com/onsi/ginkgo/v2"
@@ -34,6 +35,9 @@ var _ = Describe("S3Provider", func() {
 		endpointDocker = "minio:9000"
 		endpointLocal  = "localhost:9000"
 		ttl            = time.Second
+
+		ttlPurgeRuleID        = "ttl-purge-all-versions"
+		ttlDeleteMarkerRuleID = "ttl-expire-delete-marker"
 	)
 
 	newProvider := func(defaultBucketOptions filesystem.S3BucketOptions) *filesystem.S3Provider {
@@ -63,16 +67,50 @@ var _ = Describe("S3Provider", func() {
 		return exists
 	}
 
-	lifecycleTTL := func(bucket string) int {
+	bucketLifecycle := func(bucket string) (*lifecycle.Configuration, bool) {
 		cfg, err := minioClient.GetBucketLifecycle(ctx, bucket)
-		Expect(err).NotTo(HaveOccurred())
-		for _, rule := range cfg.Rules {
-			if rule.ID == "ttl-purge-all-versions" {
-				return int(rule.Expiration.Days)
+		if err != nil {
+			resp := minio.ToErrorResponse(err)
+			if resp.Code == "NoSuchLifecycleConfiguration" || resp.Code == "NoSuchBucketLifecycle" {
+				return nil, false
 			}
+			Expect(err).NotTo(HaveOccurred())
+			return nil, false
+		}
+		return cfg, true
+	}
+
+	lifecycleTTLExists := func(bucket string) (int, bool) {
+		cfg, ok := bucketLifecycle(bucket)
+		if !ok {
+			return 0, false
+		}
+		for _, rule := range cfg.Rules {
+			if rule.ID == ttlPurgeRuleID {
+				return int(rule.Expiration.Days), true
+			}
+		}
+		return 0, false
+	}
+
+	lifecycleTTL := func(bucket string) int {
+		days, ok := lifecycleTTLExists(bucket)
+		if ok {
+			return days
 		}
 		Fail("ttl lifecycle rule was not found")
 		return 0
+	}
+
+	expectNoLifecycleTTL := func(bucket string) {
+		cfg, ok := bucketLifecycle(bucket)
+		if !ok {
+			return
+		}
+		for _, rule := range cfg.Rules {
+			Expect(rule.ID).NotTo(Equal(ttlPurgeRuleID))
+			Expect(rule.ID).NotTo(Equal(ttlDeleteMarkerRuleID))
+		}
 	}
 
 	expectGoroutineCountAtMost := func(limit int) {
@@ -274,6 +312,79 @@ var _ = Describe("S3Provider", func() {
 			ListDirectoryEntries: true,
 		})
 		Expect(err).To(Equal(filesystem.ErrConflictingBucketOptions))
+	})
+
+	It("clears bucket TTL and reconciles ensured options", func() {
+		bucket := trackBucket("provider-clear-ttl-bucket")
+
+		Expect(provider.EnsureBucket(ctx, bucket, filesystem.S3BucketOptions{
+			CreateIfMissing:      true,
+			BucketTTL:            24 * time.Hour,
+			EmulateEmptyDirs:     true,
+			ListDirectoryEntries: true,
+		})).To(Succeed())
+		Expect(lifecycleTTL(bucket)).To(Equal(1))
+
+		s3, err := provider.Bucket(ctx, bucket)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(provider.SetBucketTTL(ctx, bucket, 0)).To(Succeed())
+		expectNoLifecycleTTL(bucket)
+
+		reopened, err := provider.Bucket(ctx, bucket)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(reopened).To(BeIdenticalTo(s3))
+
+		Expect(provider.EnsureBucket(ctx, bucket, filesystem.S3BucketOptions{
+			CreateIfMissing:      true,
+			EmulateEmptyDirs:     true,
+			ListDirectoryEntries: true,
+		})).To(Succeed())
+
+		err = provider.EnsureBucket(ctx, bucket, filesystem.S3BucketOptions{
+			CreateIfMissing:      true,
+			BucketTTL:            24 * time.Hour,
+			EmulateEmptyDirs:     true,
+			ListDirectoryEntries: true,
+		})
+		Expect(err).To(Equal(filesystem.ErrConflictingBucketOptions))
+	})
+
+	It("clears only provider-owned bucket TTL lifecycle rules", func() {
+		bucket := trackBucket("provider-clear-ttl-preserve-bucket")
+
+		Expect(provider.EnsureBucket(ctx, bucket, filesystem.S3BucketOptions{
+			CreateIfMissing: true,
+			BucketTTL:       24 * time.Hour,
+		})).To(Succeed())
+
+		cfg, err := minioClient.GetBucketLifecycle(ctx, bucket)
+		Expect(err).NotTo(HaveOccurred())
+		cfg.Rules = append(cfg.Rules, lifecycle.Rule{
+			ID:         "unrelated-lifecycle-rule",
+			Status:     "Enabled",
+			RuleFilter: lifecycle.Filter{Prefix: "keep/"},
+			Expiration: lifecycle.Expiration{
+				Days: lifecycle.ExpirationDays(7),
+			},
+		})
+		Expect(minioClient.SetBucketLifecycle(ctx, bucket, cfg)).To(Succeed())
+
+		Expect(provider.SetBucketTTL(ctx, bucket, 0)).To(Succeed())
+
+		cfg, err = minioClient.GetBucketLifecycle(ctx, bucket)
+		Expect(err).NotTo(HaveOccurred())
+		foundUnrelatedRule := false
+		for _, rule := range cfg.Rules {
+			Expect(rule.ID).NotTo(Equal(ttlPurgeRuleID))
+			Expect(rule.ID).NotTo(Equal(ttlDeleteMarkerRuleID))
+			if rule.ID == "unrelated-lifecycle-rule" {
+				foundUnrelatedRule = true
+				Expect(rule.RuleFilter.Prefix).To(Equal("keep/"))
+				Expect(rule.Expiration.Days).To(Equal(lifecycle.ExpirationDays(7)))
+			}
+		}
+		Expect(foundUnrelatedRule).To(BeTrue())
 	})
 
 	It("does not cache failed TTL updates for missing buckets", func() {

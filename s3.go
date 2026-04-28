@@ -78,14 +78,14 @@ func isNoLifecycleConfig(err error) bool {
 	return resp.Code == "NoSuchLifecycleConfiguration" || resp.Code == "NoSuchBucketLifecycle"
 }
 
+const (
+	s3LifecycleTTLPurgeAllVersionsRuleID = "ttl-purge-all-versions"
+	s3LifecycleTTLExpireDeleteMarkerID   = "ttl-expire-delete-marker"
+)
+
 func (s *S3) SetBucketTTL(ctx context.Context, ttl time.Duration) error {
 	if err := s.ensureOpen(); err != nil {
 		return err
-	}
-
-	days := int(math.Ceil(ttl.Hours() / 24.0))
-	if days < 1 {
-		days = 1
 	}
 
 	cfg, err := s.minioClient.GetBucketLifecycle(ctx, s.bucketName)
@@ -97,11 +97,17 @@ func (s *S3) SetBucketTTL(ctx context.Context, ttl time.Duration) error {
 		}
 	}
 
-	const purgeAllVersionsRuleID = "ttl-purge-all-versions"
-	const expireDeleteMarkerRuleID = "ttl-expire-delete-marker"
+	if ttl <= 0 {
+		return s.clearBucketTTL(ctx, cfg)
+	}
+
+	days := int(math.Ceil(ttl.Hours() / 24.0))
+	if days < 1 {
+		days = 1
+	}
 
 	rulePurge := lifecycle.Rule{
-		ID:         purgeAllVersionsRuleID,
+		ID:         s3LifecycleTTLPurgeAllVersionsRuleID,
 		Status:     "Enabled",
 		RuleFilter: lifecycle.Filter{}, // whole bucket; set Prefix if apply to a subtree
 		Expiration: lifecycle.Expiration{
@@ -111,7 +117,7 @@ func (s *S3) SetBucketTTL(ctx context.Context, ttl time.Duration) error {
 	}
 
 	ruleDeleteMarker := lifecycle.Rule{
-		ID:         expireDeleteMarkerRuleID,
+		ID:         s3LifecycleTTLExpireDeleteMarkerID,
 		Status:     "Enabled",
 		RuleFilter: lifecycle.Filter{},
 		Expiration: lifecycle.Expiration{
@@ -175,6 +181,28 @@ func (s *S3) SetBucketTTL(ctx context.Context, ttl time.Duration) error {
 	if !changed {
 		return nil
 	}
+	return s.minioClient.SetBucketLifecycle(ctx, s.bucketName, cfg)
+}
+
+func (s *S3) clearBucketTTL(ctx context.Context, cfg *lifecycle.Configuration) error {
+	if cfg == nil || len(cfg.Rules) == 0 {
+		return nil
+	}
+
+	rules := make([]lifecycle.Rule, 0, len(cfg.Rules))
+	for _, rule := range cfg.Rules {
+		switch rule.ID {
+		case s3LifecycleTTLPurgeAllVersionsRuleID, s3LifecycleTTLExpireDeleteMarkerID:
+			continue
+		default:
+			rules = append(rules, rule)
+		}
+	}
+	if len(rules) == len(cfg.Rules) {
+		return nil
+	}
+
+	cfg.Rules = rules
 	return s.minioClient.SetBucketLifecycle(ctx, s.bucketName, cfg)
 }
 
