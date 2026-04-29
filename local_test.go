@@ -5,12 +5,27 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/mtfelian/filesystem"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/sirupsen/logrus"
 )
+
+var errFailingReader = errors.New("reader failed")
+
+type failingReader struct {
+	read bool
+}
+
+func (r *failingReader) Read(p []byte) (int, error) {
+	if r.read {
+		return 0, errFailingReader
+	}
+	r.read = true
+	return copy(p, "partial content"), nil
+}
 
 var _ = Describe("Local FileSystem implementation", func() {
 	var (
@@ -220,6 +235,63 @@ var _ = Describe("Local FileSystem implementation", func() {
 				content, err := fsLocal.ReadFile(ctx, target)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(content).To(Equal([]byte(content1)))
+			})
+		})
+
+		Describe("WriteReader", func() {
+			It("writes reader content to a nested file", func() {
+				content := strings.Repeat("streamed local content ", 64)
+				target := fsLocal.Join(dir0, "streamed", "reader.txt")
+
+				Expect(fsLocal.WriteReader(ctx, target, strings.NewReader(content), int64(len(content)))).To(Succeed())
+
+				actual, err := fsLocal.ReadFile(ctx, target)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(string(actual)).To(Equal(content))
+			})
+
+			It("overwrites an existing file", func() {
+				target := fsLocal.Join(dir0, "streamed", "existing.txt")
+				Expect(fsLocal.WriteFile(ctx, target, []byte("old content"))).To(Succeed())
+
+				Expect(fsLocal.WriteReader(ctx, target, strings.NewReader("new content"), int64(len("new content")))).
+					To(Succeed())
+
+				actual, err := fsLocal.ReadFile(ctx, target)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(string(actual)).To(Equal("new content"))
+			})
+
+			It("rejects mismatched reader size and removes the staged file", func() {
+				targetDir := fsLocal.Join(dir0, "streamed-size-mismatch")
+				target := fsLocal.Join(targetDir, "reader.txt")
+
+				err := fsLocal.WriteReader(ctx, target, strings.NewReader("short"), 10)
+				Expect(errors.Is(err, filesystem.ErrUnexpectedSize)).To(BeTrue())
+
+				exists, err := fsLocal.Exists(ctx, target)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(exists).To(BeFalse())
+
+				entries, err := fsLocal.ReadDir(ctx, targetDir)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(entries).To(BeEmpty())
+			})
+
+			It("removes the staged file when reader fails", func() {
+				targetDir := fsLocal.Join(dir0, "streamed-reader-failure")
+				target := fsLocal.Join(targetDir, "reader.txt")
+
+				err := fsLocal.WriteReader(ctx, target, &failingReader{}, 100)
+				Expect(errors.Is(err, errFailingReader)).To(BeTrue())
+
+				exists, err := fsLocal.Exists(ctx, target)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(exists).To(BeFalse())
+
+				entries, err := fsLocal.ReadDir(ctx, targetDir)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(entries).To(BeEmpty())
 			})
 		})
 

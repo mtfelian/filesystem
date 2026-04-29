@@ -2,7 +2,10 @@ package filesystem
 
 import (
 	"context"
+	"errors"
+	"io"
 	"io/fs"
+	"net/http"
 	"sync"
 )
 
@@ -43,15 +46,51 @@ func (of *S3OpenedFile) Sync() error {
 	if err := underlying.Sync(); err != nil {
 		return err
 	}
-	b, err := of.s3.openedFilesLocalFS.ReadFile(of.ctx, of.localName)
-	if err != nil {
-		return err
-	}
-	if err := of.s3.writeFile(of.ctx, of.objectName, b, true); err != nil { // write it into S3 storage
+	if err := of.writeLocalFileToObject(); err != nil {
 		return err
 	}
 	of.changed = false
 	return nil
+}
+
+func (of *S3OpenedFile) writeLocalFileToObject() (err error) {
+	f, err := of.s3.openedFilesLocalFS.Open(of.ctx, of.localName)
+	if err != nil {
+		return err
+	}
+
+	fi, err := f.Stat()
+	if err != nil {
+		closeErr := f.Close()
+		return errors.Join(err, closeErr)
+	}
+
+	contentType, err := detectContentType(f)
+	if err != nil {
+		closeErr := f.Close()
+		return errors.Join(err, closeErr)
+	}
+	if _, err = f.Seek(0, io.SeekStart); err != nil {
+		closeErr := f.Close()
+		return errors.Join(err, closeErr)
+	}
+
+	err = of.s3.writeReader(of.ctx, of.objectName, f, fi.Size(), contentType, true)
+	closeErr := f.Close()
+	if err != nil || closeErr != nil {
+		return errors.Join(err, closeErr)
+	}
+	return nil
+}
+
+// detectContentType samples the file using the same first-512-byte sniffing rules as http.DetectContentType.
+func detectContentType(f File) (string, error) {
+	header := make([]byte, 512)
+	n, err := f.Read(header)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return http.DetectContentType(header[:n]), nil
 }
 
 // Truncate makes S3OpenedFile to implement File
@@ -98,13 +137,8 @@ func (of *S3OpenedFile) Close() error {
 		return err
 	}
 
-	b, err := of.s3.openedFilesLocalFS.ReadFile(of.ctx, of.localName) // re-read local file
-	if err != nil {
-		return err
-	}
-
 	if of.changed {
-		if err := of.s3.writeFile(of.ctx, of.objectName, b, true); err != nil { // write it into S3 storage
+		if err := of.writeLocalFileToObject(); err != nil {
 			return err
 		}
 		of.changed = false

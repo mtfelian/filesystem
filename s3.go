@@ -571,10 +571,26 @@ func (s *S3) ReadFile(ctx context.Context, name string) (b []byte, err error) {
 
 // WriteFile by it's name to the client's bucket
 func (s *S3) WriteFile(ctx context.Context, name string, b []byte) (err error) {
-	return s.writeFile(ctx, name, b, false)
+	return s.writeReader(ctx, name, bytes.NewReader(b), int64(len(b)), http.DetectContentType(b), false)
 }
 
 func (s *S3) writeFile(ctx context.Context, name string, b []byte, allowDuringClose bool) (err error) {
+	return s.writeReader(ctx, name, bytes.NewReader(b), int64(len(b)), http.DetectContentType(b), allowDuringClose)
+}
+
+// WriteReader writes all bytes from r to name without holding the whole payload in memory.
+func (s *S3) WriteReader(ctx context.Context, name string, r io.Reader, size int64) (err error) {
+	return s.writeReader(ctx, name, r, size, "application/octet-stream", false)
+}
+
+func (s *S3) writeReader(
+	ctx context.Context,
+	name string,
+	r io.Reader,
+	size int64,
+	contentType string,
+	allowDuringClose bool,
+) (err error) {
 	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
 		return
 	}
@@ -589,6 +605,9 @@ func (s *S3) writeFile(ctx context.Context, name string, b []byte, allowDuringCl
 			return
 		}
 	}
+	if size < 0 {
+		return ErrInvalidSize
+	}
 
 	name = s.normalizeName(name)
 	if s.emulateEmptyDirs {
@@ -598,8 +617,8 @@ func (s *S3) writeFile(ctx context.Context, name string, b []byte, allowDuringCl
 			}
 		}
 	}
-	_, err = s.minioClient.PutObject(ctx, s.bucketName, s.objectKeyFromNormalized(name), bytes.NewReader(b), int64(len(b)),
-		minio.PutObjectOptions{ContentType: http.DetectContentType(b)})
+	_, err = s.minioClient.PutObject(ctx, s.bucketName, s.objectKeyFromNormalized(name), r, size,
+		minio.PutObjectOptions{ContentType: contentType})
 	return err
 }
 

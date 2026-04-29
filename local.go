@@ -1,8 +1,10 @@
 package filesystem
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -226,15 +228,69 @@ func (l *Local) WriteFile(ctx context.Context, name string, data []byte) (err er
 		} // else drop callback error
 	}()
 
+	return l.writeReader(ctx, name, bytes.NewReader(data), int64(len(data)))
+}
+
+// WriteReader writes all bytes from r to name without holding the whole payload in memory.
+func (l *Local) WriteReader(ctx context.Context, name string, r io.Reader, size int64) (err error) {
+	if ctx, err = invokeBeforeOperationCB(ctx); err != nil {
+		return
+	}
+	defer func() {
+		if errcb := invokeAfterOperationCB(ctx); err == nil {
+			err = errcb
+		} // else drop callback error
+	}()
+
+	return l.writeReader(ctx, name, r, size)
+}
+
+func (l *Local) writeReader(ctx context.Context, name string, r io.Reader, size int64) (err error) {
+	if size < 0 {
+		return ErrInvalidSize
+	}
+
 	physicalName, err := l.physicalName(name)
 	if err != nil {
 		return err
 	}
-
-	if err = os.MkdirAll(filepath.Dir(physicalName), 0777); err != nil {
-		return
+	dir := filepath.Dir(physicalName)
+	if err = os.MkdirAll(dir, 0777); err != nil {
+		return err
 	}
-	return os.WriteFile(physicalName, data, 0644)
+
+	tempFile, err := os.CreateTemp(dir, filepath.Base(physicalName)+".tmp.*")
+	if err != nil {
+		return err
+	}
+	tempName := tempFile.Name()
+	var keepTemp bool
+	defer func() {
+		if keepTemp {
+			return
+		}
+		if removeErr := os.Remove(tempName); err != nil && removeErr != nil && !os.IsNotExist(removeErr) {
+			err = errors.Join(err, removeErr)
+		}
+	}()
+
+	var written int64
+	written, err = io.Copy(tempFile, r)
+	closeErr := tempFile.Close()
+	if err != nil || closeErr != nil {
+		return errors.Join(err, closeErr)
+	}
+	if written != size {
+		return fmt.Errorf("%w: expected %d, got %d", ErrUnexpectedSize, size, written)
+	}
+	if err = os.Chmod(tempName, 0644); err != nil {
+		return err
+	}
+	if err = os.Rename(tempName, physicalName); err != nil {
+		return err
+	}
+	keepTemp = true
+	return nil
 }
 
 // WriteFiles by the data given

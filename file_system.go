@@ -7,8 +7,14 @@ import (
 	"io/fs"
 )
 
-// ErrFileSystemClosed means the filesystem or provider has been closed.
-var ErrFileSystemClosed = errors.New("filesystem is closed")
+var (
+	// ErrFileSystemClosed means the filesystem or provider has been closed.
+	ErrFileSystemClosed = errors.New("filesystem is closed")
+	// ErrInvalidSize means a streaming write was called with an invalid object size.
+	ErrInvalidSize = errors.New("invalid size")
+	// ErrUnexpectedSize means a streaming write wrote a different number of bytes than requested.
+	ErrUnexpectedSize = errors.New("unexpected size")
+)
 
 // File abstracts a file
 type File interface {
@@ -64,6 +70,7 @@ type FileSystem interface {
 	OpenW(context.Context, string) (File, error)
 	ReadFile(context.Context, string) ([]byte, error)
 	WriteFile(context.Context, string, []byte) error
+	WriteReader(context.Context, string, io.Reader, int64) error
 	WriteFiles(context.Context, []FileNameData) error
 	Reader(context.Context, string) (io.ReadCloser, error)
 	Exists(context.Context, string) (bool, error)

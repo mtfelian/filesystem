@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"path"
 	"strings"
 	"sync"
@@ -269,6 +270,28 @@ var _ = Describe("S3 FileSystem implementation", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(actualContent).To(Equal(content))
 			}
+		})
+
+		It("checks WriteReader streams object content", func() {
+			content := strings.Repeat("streamed s3 content ", 1024)
+			key := "/streamed/reader.txt"
+
+			Expect(s3fs.WriteReader(ctx, key, strings.NewReader(content), int64(len(content)))).To(Succeed())
+
+			actualContent, err := s3fs.ReadFile(ctx, key)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(actualContent)).To(Equal(content))
+		})
+
+		It("checks WriteReader rejects negative size", func() {
+			key := "/streamed/negative-size.txt"
+
+			err := s3fs.WriteReader(ctx, key, strings.NewReader("content"), -1)
+			Expect(err).To(Equal(filesystem.ErrInvalidSize))
+
+			exists, err := s3fs.Exists(ctx, key)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(exists).To(BeFalse())
 		})
 
 		It("uses distinct temp names for distinct object keys", func() {
@@ -583,9 +606,15 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					Expect(f.Close()).To(Succeed())
 					opened = false
 
+					expectedContent := []byte("123 456 1")
 					b, err := s3fs.ReadFile(ctx, key1)
 					Expect(err).NotTo(HaveOccurred())
-					Expect(b).To(BeEquivalentTo([]byte("123 456 1")), "should be partially overwritten")
+					Expect(b).To(BeEquivalentTo(expectedContent), "should be partially overwritten")
+
+					objectInfo, err := minioClient.StatObject(ctx, bucketName, strings.TrimPrefix(path.Clean(key1), "/"),
+						minio.StatObjectOptions{})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(objectInfo.ContentType).To(Equal(http.DetectContentType(expectedContent)))
 				})
 
 				It("checks Sync on opened write-only local file", func() {
@@ -599,6 +628,11 @@ var _ = Describe("S3 FileSystem implementation", func() {
 					b, err := s3fs.ReadFile(ctx, key1)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(b).To(Equal([]byte(content)))
+
+					objectInfo, err := minioClient.StatObject(ctx, bucketName, strings.TrimPrefix(path.Clean(key1), "/"),
+						minio.StatObjectOptions{})
+					Expect(err).NotTo(HaveOccurred())
+					Expect(objectInfo.ContentType).To(Equal(http.DetectContentType([]byte(content))))
 				})
 
 				It("checks that Stat.Size and SeekEnd returns same size", func() {
